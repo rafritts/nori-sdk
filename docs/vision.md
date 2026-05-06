@@ -16,10 +16,12 @@ agent = Agent(
     instructions="You are a helpful assistant",
     tools=[Bash, FilePatching, WebSearch, Memory],
     narration=True,
+    autocompact=True,
 )
 
 agent.set_narrator_prefix("[::] ")
 agent.subscribe_narration(lambda msg: print(msg))
+agent.use_running_context_summary(True)
 ```
 
 ## Batteries Included Tools
@@ -35,6 +37,33 @@ Tools ship with Nori and are imported directly. They come in two flavors:
 **Agentic** — spins up a sub-loop to complete a goal:
 - Web search (synthesized results)
 - Skill search / skill runner
+
+## Custom Tools
+
+Custom tools are just decorated Python functions. Docstring becomes the description, type annotations become the schema. Pydantic models are supported for structured inputs.
+
+```python
+from nori import tool
+from pydantic import BaseModel
+
+@tool
+def get_weather(city: str) -> str:
+    """Get the current weather for a city."""
+    return call_weather_api(city)
+
+class SearchParams(BaseModel):
+    query: str
+    max_results: int = 10
+
+@tool
+def search(params: SearchParams) -> str:
+    """Search the internal knowledge base."""
+    ...
+
+agent = Agent(tools=[Bash, get_weather, search])
+```
+
+Built-in and custom tools are treated identically — same list, same interface.
 
 ## Narration
 
@@ -55,7 +84,46 @@ The subscriber decides what to do with each event. A CLI prints the narration an
 
 The narrator prefix is configurable (`set_narrator_prefix`). Narration can be disabled entirely by setting `narration=False`.
 
+## Permissions
+
+Agents accept either an allowlist or a denylist — never both. Declaring both is a runtime error. This is intentional: ambiguous permissions are a safety hazard, not a fallback case.
+
+```python
+# Only these tools are permitted
+agent = Agent(tools=[Bash, WebSearch, Memory], allow=["bash", "web_search"])
+
+# Everything except these
+agent = Agent(tools=[Bash, WebSearch, Memory], deny=["bash"])
+
+# Both → RuntimeError at startup
+agent = Agent(tools=[...], allow=["bash"], deny=["web_search"])  # raises
+```
+
+Glob matching on tool names. Deny wins — but you can't have both.
+
+## Context Management
+
+Long-horizon coherence is a first-class concern. Agents on long tasks drift, repeat work, and lose the thread. Nori addresses this with a layered context management system:
+
+**Scratchpad** — the agent writes free-form notes to itself mid-task. Reasoning, dead ends, decisions. Visible in the context, not returned to the user.
+
+**TODO** — structured task tracking built in as a native tool. The agent adds and checks off items as it works. Keeps the goal visible across the full session.
+
+**Running context summary** — after each turn, Nori maintains a rolling summary of what the agent has done, what it found, and where it is in the task. This summary is injected into the system prompt so it survives compaction and the agent never loses the thread.
+
+**Autocompaction** — on by default. Triggered automatically before the context window fills. The running summary is the compaction anchor — you always compact into the summary, never into nothing.
+
+**`exclude_from_main_context()`** — large tool results (e.g. a 10k line grep) are summarized and the raw output is dropped. The agent saw it; the context doesn't carry it forever.
+
+```python
+agent = Agent(
+    ...
+    autocompact=True,   # default
+)
+
+agent.use_running_context_summary(True)
+```
+
 ## Other Features
 
-- Easy allowlist/denylist configuration
 - Visibility / audit / monitoring / logging out of the box

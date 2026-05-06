@@ -124,6 +124,47 @@ agent = Agent(
 agent.use_running_context_summary(True)
 ```
 
+## Self-Modification
+
+Agents can be granted escalating levels of self-modification capability. These are opt-in and off by default. Each tier is a superset of the one below it.
+
+**`self_custodian`** — stewardship of existing state, no new capabilities:
+- `update_instructions()` — replace the system prompt
+- `update_env(key, value)` — write to the env file
+- `update_model()` — swap the model name in config
+- Persistent memory/notes (read + write)
+
+**`self_modify`** — extends capabilities through controlled meta-tools:
+- Everything in `self_custodian`
+- `register_tool(name, code, description)` — write, validate, and hot-register a new tool
+- `deregister_tool(name)` — remove a tool by name
+- New tools are sandboxed and go through Nori's validation layer before being attached
+
+**`self_mutation`** — raw access, no leash:
+- Everything in `self_modify`
+- Direct file access to its own source and config via Bash/FilePatching
+- No validation layer, no guardrails
+- The user is explicitly taking responsibility
+
+Both constructor kwargs and runtime methods are supported:
+
+```python
+# declarative
+agent = Agent(
+    ...,
+    self_custodian=True,
+    self_modify=True,
+    self_mutation=False,
+)
+
+# runtime
+agent.allow_self_custodian(True)
+agent.allow_self_modify(True)
+agent.allow_self_mutation(True)
+```
+
+The design principle: the agent operates *through* tools, not *around* them. Even self-modification is just another tool. `self_custodian` and `self_modify` enforce this — the leash is always the tool boundary. `self_mutation` removes the leash entirely; that's a conscious choice by the user, not a framework decision.
+
 ## Other Features
 
 - Visibility / audit / monitoring / logging out of the box

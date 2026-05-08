@@ -99,6 +99,8 @@ Tools ship with Nori and are imported directly. They come in two flavors:
 - Web search (synthesized results)
 - Skill search / skill runner
 
+Every built-in tool requires a `reason` parameter — the model's explanation for why it is calling the tool. This is not optional.
+
 ## Custom Tools
 
 Custom tools are just decorated Python functions. Docstring becomes the description, type annotations become the schema. Pydantic models are supported for structured inputs.
@@ -124,26 +126,26 @@ def search(params: SearchParams) -> str:
 agent = Agent(tools=[Bash, get_weather, search])
 ```
 
-Built-in and custom tools are treated identically — same list, same interface.
+The `@tool` decorator automatically injects a required `reason: str` parameter into the tool's schema. The model must supply it; the underlying function never sees it. Built-in and custom tools are treated identically — same list, same interface, same `reason` requirement.
 
 ## Narration
 
-Narration is a first-class framework feature, not a tool responsibility. At every tool boundary, the framework emits two separate events:
+Narration comes from two sources:
 
-1. **Narration event** — the model's intent in natural language, emitted immediately before execution
-2. **Tool call event** — the actual tool execution
+1. **Tool call `reason`** — every tool call carries a required `reason` field. The framework fires `on_narration(reason)` before executing each tool.
 
+2. **Turn text content** — when the model produces text alongside tool calls in the same turn, that text is also narration. The framework fires `on_narration(text)` for it before the tool calls execute.
+
+Text content in a turn with *no* tool calls is the final response, not narration — it is returned to the caller.
+
+```python
+agent.on_narration = lambda text: print(f"[::] {text}")
+agent.on_tool_result = lambda name, result: log(name, result)
 ```
-on_narration("Reading the config file to find the model setting...")
-on_tool_call(FileRead, path="config.json")
 
-on_narration("Grepping the codebase for any other references...")
-on_tool_call(Bash, command="grep -r 'grok-4-1' .")
-```
+A CLI prints narration and shows a spinner. A Discord bot sends it as a message. A web UI streams it into a sidebar. Nori is output-agnostic.
 
-The subscriber decides what to do with each event. A CLI prints the narration and shows a spinner. A Discord bot sends it as a message. A web UI streams it into a sidebar. Nori is output-agnostic.
-
-The narrator prefix is configurable (`agent.narrator_prefix`). Narration can be disabled entirely by setting `narration=False`.
+The narrator prefix is configurable (`agent.narrator_prefix`). Narration can be disabled entirely with `narration=False`, which suppresses `on_narration` callbacks but does not remove `reason` from the tool schema — the model still supplies it.
 
 ## Permissions
 

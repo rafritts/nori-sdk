@@ -1,7 +1,11 @@
 import asyncio
 import json
+import logging
 
 from openai import AsyncOpenAI
+
+logger = logging.getLogger("nori.agent")
+narration_logger = logging.getLogger("nori.narration")
 from openai.types.chat import ChatCompletionMessage
 
 from nori.anti_spin import CheckpointScrutiny, evaluate_checkpoint
@@ -174,8 +178,10 @@ class Agent:
         print(text)
 
     def _narrate(self, tool_name: str, reason: str) -> None:
+        msg = f"{self.narrator_prefix}{tool_name}[{reason}]"
+        narration_logger.debug(msg)
         if self.narration:
-            self.on_narration(f"{self.narrator_prefix}{tool_name}[{reason}]")
+            self.on_narration(msg)
 
     def _tool_name(self, t) -> str:
         return t.schema["function"]["name"]
@@ -226,7 +232,12 @@ class Agent:
         reason = args.get("reason", "")
         self._narrate(tc.function.name, reason)
         self._tool_calls_log.append({"name": tc.function.name, "args": args})
-        result = await fn(**args)
+        logger.debug("tool_call name=%s args=%s", tc.function.name, args)
+        try:
+            result = await fn(**args)
+        except Exception as exc:
+            logger.error("tool_error name=%s error=%s", tc.function.name, exc)
+            raise
         content = str(result)
         if self.summarize_tool_output and getattr(fn, "summarize_output", True):
             content = await summarize(content, reason, self._client, self.model)
@@ -282,6 +293,7 @@ class Agent:
         self._compact_warning_injected = False
 
     async def run(self, prompt: str) -> str:
+        logger.debug("run agent=%s prompt=%r", self.name, prompt[:80])
         self._history.append({"role": "user", "content": prompt})
 
         while True:
@@ -290,6 +302,9 @@ class Agent:
 
             message = await self._complete(self._history)
             self._turn_count += 1
+            logger.debug("turn agent=%s turn=%d tool_calls=%d",
+                         self.name, self._turn_count,
+                         len(message.tool_calls) if message.tool_calls else 0)
             self._history.append(self._message_to_dict(message))
 
             fill = self._context_fill()

@@ -141,3 +141,28 @@ async def test_web_client_method_passed_through():
         await WebClient(url="http://example.com", method="POST", body="data", reason="r")
     call_kwargs = mock_client.request.call_args
     assert call_kwargs.args[0] == "POST"
+
+
+# ── CodeRunner ────────────────────────────────────────────────────────────────
+
+async def test_code_runner_stdout_returned():
+    from nori.tools.code_runner import CodeRunner
+    result = await CodeRunner(code="print('hello nori')", reason="r")
+    assert "hello nori" in result
+
+
+async def test_code_runner_exception_returned_not_raised():
+    from nori.tools.code_runner import CodeRunner
+    result = await CodeRunner(code="raise ValueError('boom')", reason="r")
+    assert "[error]" in result
+    assert "boom" in result
+
+
+async def test_code_runner_reason_not_in_snippet():
+    from unittest.mock import MagicMock, patch
+    from nori.tools.code_runner import CodeRunner
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stdout="ok", stderr="")
+        await CodeRunner(code="print(1)", reason="secret reason")
+        args = mock_run.call_args.args[0]
+        assert "secret reason" not in " ".join(args)

@@ -6,6 +6,7 @@ from openai.types.chat import ChatCompletionMessage
 
 from nori.context import ContextFile, ContextRole
 from nori.exceptions import MaxTurnsExceeded
+from nori.summarizer import summarize
 
 
 class Agent:
@@ -34,6 +35,7 @@ class Agent:
         self.narration: bool = False
         self.narrator_prefix: str = ""
         self.on_narration = self._default_narrator
+        self.summarize_tool_output: bool = True
 
     @property
     def _client(self) -> AsyncOpenAI:
@@ -93,7 +95,10 @@ class Agent:
         reason = args.get("reason", "")
         self._narrate(tc.function.name, reason)
         result = await fn(**args)
-        return {"role": "tool", "tool_call_id": tc.id, "content": str(result)}
+        content = str(result)
+        if self.summarize_tool_output and getattr(fn, "summarize_output", True):
+            content = await summarize(content, reason, self._client, self.model)
+        return {"role": "tool", "tool_call_id": tc.id, "content": content}
 
     async def _execute_tools(self, tool_calls) -> list[dict]:
         return list(await asyncio.gather(*[self._invoke_tool(tc) for tc in tool_calls]))

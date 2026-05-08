@@ -15,7 +15,7 @@ from nori.tools import Bash, FilePatching, WebSearch, Memory
 agent = Agent(
     name="Assistant",
     model="grok-4.3",
-    instructions="You are a helpful assistant",
+    system_prompt="You are a helpful assistant",
     tools=[Bash, FilePatching, WebSearch, Memory],
     narration=True,
     narrator_prefix="[::] ",
@@ -24,6 +24,28 @@ agent = Agent(
 
 agent.on_narration = lambda msg: print(msg)
 ```
+
+## Context Files
+
+Arbitrary markdown files can be injected into the conversation at a specified position. Useful for reference docs, examples, codebases, or any static context the agent should have.
+
+```python
+from nori import Agent, ContextFile, ContextRole
+
+agent = Agent(
+    ...,
+    system_prompt="You are a helpful assistant",
+    context_files=[
+        ContextFile("docs/api_reference.md", role=ContextRole.SYSTEM),
+        ContextFile("examples/usage.md", role=ContextRole.USER),
+        ContextFile("examples/good_response.md", role=ContextRole.ASSISTANT),
+    ]
+)
+```
+
+`ContextRole.SYSTEM` files are appended to `system_prompt` in declaration order. `ContextRole.USER` and `ContextRole.ASSISTANT` files are injected as messages at the start of the conversation, in declaration order, before the first user message.
+
+Multiple files with the same role are all appended in order — not an error.
 
 ## Completions
 
@@ -247,7 +269,7 @@ agent = Agent(
 Agents can be granted escalating levels of self-modification capability. These are opt-in and off by default. Each tier is a superset of the one below it.
 
 **`self_custodian`** — stewardship of existing state, no new capabilities:
-- `update_instructions()` — replace the system prompt
+- `update_system_prompt()` — replace the system prompt
 - `update_env(key, value)` — write to the env file
 - `update_model()` — swap the model name in config
 - Persistent memory/notes (read + write)

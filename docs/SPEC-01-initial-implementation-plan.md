@@ -48,7 +48,7 @@ No API calls yet.
 
 ## Step 3 — Single completion call
 
-`Agent` constructor accepts `name`, `model`, `instructions`, `api_key`, `base_url`. Implement a raw `_complete()` coroutine that sends a message list to `AsyncOpenAI` and returns the response.
+`Agent` constructor accepts `name`, `model`, `system_prompt`, `api_key`, `base_url`, `context_files`. Implement a raw `_complete()` coroutine that sends a message list to `AsyncOpenAI` and returns the response. `system_prompt` maps to the `system` role message. `ContextRole.SYSTEM` files are appended to it; `ContextRole.USER` and `ContextRole.ASSISTANT` files are prepended to the conversation history.
 
 **Files:**
 - `nori/agent.py`

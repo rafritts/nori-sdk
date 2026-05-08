@@ -3,18 +3,19 @@ import json
 import logging
 
 from openai import AsyncOpenAI
-
-logger = logging.getLogger("nori.agent")
-narration_logger = logging.getLogger("nori.narration")
 from openai.types.chat import ChatCompletionMessage
 
 from nori.anti_spin import CheckpointScrutiny, evaluate_checkpoint
-from nori.mcp.server import MCPServer
+import nori.config as config
 from nori.context import ContextFile, ContextRole, inject_summary, update_running_summary
 from nori.exceptions import AntiSpinTerminated, MaxTurnsExceeded
+from nori.mcp.server import MCPServer
 from nori.permissions import PermissionGuard
 from nori.pricing import cost_for
 from nori.summarizer import summarize
+
+logger = logging.getLogger("nori.agent")
+narration_logger = logging.getLogger("nori.narration")
 
 _COMPACT_WARNING = (
     "[System] Context window is 70% full. Consider wrapping up or calling Compact."
@@ -26,7 +27,7 @@ class Agent:
     def __init__(
         self,
         name: str,
-        model: str,
+        model: str = None,
         system_prompt: str = "",
         api_key: str = None,
         base_url: str = None,
@@ -44,12 +45,12 @@ class Agent:
         self_mutation: bool = False,
     ):
         self.name = name
-        self.model = model
+        self.model = model or config.DEFAULT_MODEL
         self.system_prompt = system_prompt
         self.description = description
         self._context_files = context_files or []
-        self._api_key = api_key
-        self._base_url = base_url
+        self._api_key = api_key or config.API_KEY
+        self._base_url = base_url or config.BASE_URL
         self.__client: AsyncOpenAI | None = None
         self._tools: dict = {self._tool_name(t): t for t in (tools or [])}
         self._permissions = PermissionGuard(allow, deny)

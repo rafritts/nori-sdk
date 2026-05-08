@@ -23,6 +23,9 @@ agent = Agent(
 )
 
 agent.on_narration = lambda msg: print(msg)
+
+response = await agent.run("Refactor the auth module to use the new token format")
+print(response)
 ```
 
 ## Context Files

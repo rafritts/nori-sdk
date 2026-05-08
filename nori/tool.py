@@ -56,6 +56,12 @@ def tool(_fn: Callable = None, *, summarize_output: bool = True):
 
         wrapper.schema = schema
         wrapper.summarize_output = summarize_output
+
+        def bind(**locked):
+            from nori.tools._bound import BoundTool
+            return BoundTool(wrapper, locked)
+
+        wrapper.bind = bind
         return wrapper
 
     if _fn is not None:

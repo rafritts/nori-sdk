@@ -35,6 +35,9 @@ class Agent:
         checkpoint: int | None = None,
         checkpoint_scrutiny: CheckpointScrutiny = CheckpointScrutiny.MODERATE,
         checkpoint_compact: bool = False,
+        self_custodian: bool = False,
+        self_modify: bool = False,
+        self_mutation: bool = False,
     ):
         self.name = name
         self.model = model
@@ -58,6 +61,11 @@ class Agent:
         self.max_context_chars: int = 200_000
         self._compact_warning_injected: bool = False
         self._mcp_servers: list[MCPServer] = []
+        self.self_custodian = self_custodian
+        self.self_modify = self_modify
+        self.self_mutation = self_mutation
+        if self_custodian or self_modify or self_mutation:
+            self._register_self_modify_tools(self_custodian, self_modify, self_mutation)
         self._checkpoint = checkpoint
         self._checkpoint_scrutiny = checkpoint_scrutiny
         self._checkpoint_compact = checkpoint_compact
@@ -70,6 +78,22 @@ class Agent:
         if self.__client is None:
             self.__client = AsyncOpenAI(api_key=self._api_key, base_url=self._base_url)
         return self.__client
+
+    # ── Self-modification ─────────────────────────────────────────────────────
+
+    def _register_self_modify_tools(self, custodian: bool, modify: bool, mutation: bool) -> None:
+        from nori.tools.self_modify.custodian import make_custodian_tools
+        from nori.tools.self_modify.modify import make_modify_tools
+        from nori.tools.self_modify.mutation import make_mutation_tools
+
+        for t in make_custodian_tools(self):
+            self._tools[self._tool_name(t)] = t
+        if modify or mutation:
+            for t in make_modify_tools(self):
+                self._tools[self._tool_name(t)] = t
+        if mutation:
+            for t in make_mutation_tools(self):
+                self._tools[self._tool_name(t)] = t
 
     # ── MCP ───────────────────────────────────────────────────────────────────
 

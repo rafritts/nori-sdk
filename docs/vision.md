@@ -319,6 +319,43 @@ agent.reset()           # clear history and turn count, keep config
 
 `cost` is computed from a built-in `dict[str, ModelPricing]` keyed by model name. Prices are hardcoded and updated as models change.
 
+## MCP Integration
+
+MCP servers are first-class objects. Create one, name it, and pass it to any agent that needs it.
+
+```python
+from nori.mcp import MCPServer
+
+filesystem = MCPServer(
+    name="filesystem",
+    command="npx @modelcontextprotocol/server-filesystem",
+    args=["/tmp"],
+)
+
+github = MCPServer(
+    name="github",
+    url="https://api.example.com/mcp",
+)
+
+agent = Agent(
+    ...,
+    mcp_servers=[filesystem, github],
+)
+```
+
+`command` + optional `args` and `env` declares a stdio server. `url` declares an HTTP/SSE server. Transport is explicit — no inference.
+
+On registration, Nori connects to the server, discovers its tool schemas, and injects `reason` into each one. MCP tools appear in the agent's tool list identically to built-ins and custom tools — same interface, same `reason` requirement, same narration behavior.
+
+**Runtime registration and deregistration** — pass the object, not a name:
+
+```python
+agent.add_mcp_server(filesystem)
+agent.remove_mcp_server(filesystem)
+```
+
+`MCPServer` objects are shareable — the same instance can be registered with multiple agents.
+
 ## Logging
 
 All agent activity is written to a standard Python `logging` logger at `nori.agent`. Narration gets its own logger at `nori.narration`, making it easy to route to a separate file or handler:

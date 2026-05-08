@@ -58,3 +58,29 @@ async def test_file_edit_reason_not_written_to_file(tmp_path):
     f.write_text("original content")
     await FileEdit(path=str(f), old_content="original", new_content="updated", reason="secret reason")
     assert "secret reason" not in f.read_text()
+
+
+# ── FileSearch ────────────────────────────────────────────────────────────────
+
+async def test_file_search_finds_by_name(tmp_path):
+    from nori.tools.file_search import FileSearch
+    (tmp_path / "foo.py").write_text("x")
+    (tmp_path / "bar.txt").write_text("x")
+    result = await FileSearch(path=str(tmp_path), pattern="*.py", reason="r")
+    assert "foo.py" in result
+    assert "bar.txt" not in result
+
+
+async def test_file_search_finds_by_content(tmp_path):
+    from nori.tools.file_search import FileSearch
+    (tmp_path / "a.txt").write_text("hello nori world")
+    (tmp_path / "b.txt").write_text("unrelated")
+    result = await FileSearch(path=str(tmp_path), pattern="*", content="nori", reason="r")
+    assert "a.txt" in result
+    assert "b.txt" not in result
+
+
+async def test_file_search_no_match_returns_empty(tmp_path):
+    from nori.tools.file_search import FileSearch
+    result = await FileSearch(path=str(tmp_path), pattern="*.xyz", reason="r")
+    assert result == "No matches found."

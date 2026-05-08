@@ -53,7 +53,7 @@ No API calls yet.
 **Files:**
 - `nori/agent.py`
 
-**Verify:** Send a single `"Say hello."` message and print the response. Costs ~1 token. Real API call.
+**Verify:** Send a single `"Say hello."` message and print the response. Real API call.
 
 ---
 
@@ -101,20 +101,29 @@ Sandboxed subprocess execution. Returns stdout + stderr. Required `reason` param
 
 ---
 
-## Step 8 — `FileEdit` and `FileSearch` tools (native)
+## Step 8 — `FileEdit` tool (native)
 
-`FileEdit` — apply a patch to a file (read, replace, write).
-`FileSearch` — find files by name or grep for content.
+Apply a patch to a file (read, replace, write).
 
 **Files:**
 - `nori/tools/file_edit.py`
-- `nori/tools/file_search.py`
 
-**Verify:** Agent edits a temp file. Agent searches for a string across a temp directory. Real tokens.
+**Verify:** Agent edits a temp file. Confirm the change is written to disk. Real tokens.
 
 ---
 
-## Step 9 — `WebClient` tool (native)
+## Step 9 — `FileSearch` tool (native)
+
+Find files by name or grep for content.
+
+**Files:**
+- `nori/tools/file_search.py`
+
+**Verify:** Agent searches for a string across a temp directory. Confirm correct files are returned. Real tokens.
+
+---
+
+## Step 10 — `WebClient` tool (native)
 
 Single HTTP request via `httpx`. Returns response body.
 
@@ -125,7 +134,18 @@ Single HTTP request via `httpx`. Returns response body.
 
 ---
 
-## Step 10 — Result summarization
+## Step 11 — `CodeRunner` tool (native)
+
+Execute a Python 3 snippet via subprocess. Returns stdout.
+
+**Files:**
+- `nori/tools/code_runner.py`
+
+**Verify:** Agent with `CodeRunner`, prompt that requires a simple calculation. Confirm the snippet runs and stdout is returned. Real tokens.
+
+---
+
+## Step 12 — Result summarization
 
 After a tool returns, run a separate summarization pass before appending the result to the conversation. Pass the tool call's `reason` as the summarization hint. Opt out per-tool with `@tool(summarize_output=False)`.
 
@@ -133,11 +153,11 @@ After a tool returns, run a separate summarization pass before appending the res
 - `nori/summarizer.py`
 - `nori/agent.py` (wire in)
 
-**Verify:** Run `Bash` with a command that returns large output. Confirm the appended tool result is a summary, not the raw output. Confirm `summarize_output=False` skips the pass. Real tokens.
+**Verify:** Run `Bash` with a command that returns large output. Confirm the appended tool result is a summary. Confirm `summarize_output=False` skips the pass. Real tokens.
 
 ---
 
-## Step 11 — Running context summary
+## Step 13 — Running context summary
 
 After each turn, maintain a rolling summary of what the agent has done. Inject it as a user-role message at the top of the conversation. Enable with `running_context_summary=True`.
 
@@ -149,7 +169,7 @@ After each turn, maintain a rolling summary of what the agent has done. Inject i
 
 ---
 
-## Step 12 — Autocompaction
+## Step 14 — Autocompaction
 
 Inject a warning message at 70% context fill. Force compaction at 85% — summarize history into the running summary, drop raw turns. Agent can call `Compact` tool voluntarily before threshold.
 
@@ -161,7 +181,7 @@ Inject a warning message at 70% context fill. Force compaction at 85% — summar
 
 ---
 
-## Step 13 — QoL properties
+## Step 15 — QoL properties
 
 Read-only properties on `Agent`: `context_length`, `token_counts`, `cost`, `turn_count`, `history`, `tool_calls`. `reset()` method. `cost` uses a hardcoded `ModelPricing` table.
 
@@ -169,11 +189,11 @@ Read-only properties on `Agent`: `context_length`, `token_counts`, `cost`, `turn
 - `nori/pricing.py`
 - `nori/agent.py` (wire in)
 
-**Verify:** Run any previous test scenario. Assert all properties return sensible values. No API calls needed for this step — deterministic computation.
+**Verify:** Run any previous scenario. Assert all properties return sensible values. No API calls needed — deterministic computation.
 
 ---
 
-## Step 14 — Permissions
+## Step 16 — Permissions
 
 `allow` and `deny` lists on `Agent`. Glob matching on tool names. Declaring both raises `RuntimeError` at construction. Calling a denied tool raises `PermissionError`.
 
@@ -185,32 +205,73 @@ Read-only properties on `Agent`: `context_length`, `token_counts`, `cost`, `turn
 
 ---
 
-## Step 15 — Agentic tools (`BashAgent`, `FileEditAgent`, `FileSearchAgent`, `WebAgent`)
+## Step 17 — `BashAgent` tool (agentic)
 
-Each agentic tool spins up a sub-`Agent` with an isolated context window, runs to completion, and returns a summarized result. Main agent never sees sub-loop history.
+Spins up a sub-`Agent` with an isolated context window for multi-step shell work. Returns a summarized result.
 
 **Files:**
 - `nori/tools/bash_agent.py`
-- `nori/tools/file_edit_agent.py`
-- `nori/tools/file_search_agent.py`
-- `nori/tools/web_agent.py`
 
 **Verify:** Agent with `BashAgent`, prompt requiring multi-step shell work. Confirm sub-loop runs, result is summarized, main context stays clean. Real tokens.
 
 ---
 
-## Step 16 — `WebSearch` agentic tool
+## Step 18 — `FileEditAgent` tool (agentic)
+
+Sub-agent for complex edits spanning many files.
+
+**Files:**
+- `nori/tools/file_edit_agent.py`
+
+**Verify:** Agent with `FileEditAgent`, prompt requiring edits across multiple temp files. Confirm all edits applied, result summarized. Real tokens.
+
+---
+
+## Step 19 — `FileSearchAgent` tool (agentic)
+
+Sub-agent for deep search requiring reasoning across results.
+
+**Files:**
+- `nori/tools/file_search_agent.py`
+
+**Verify:** Agent with `FileSearchAgent`, prompt requiring multi-step search and reasoning. Confirm result is summarized. Real tokens.
+
+---
+
+## Step 20 — `WebAgent` tool (agentic)
+
+Sub-agent for multi-step web interaction, scraping, and research.
+
+**Files:**
+- `nori/tools/web_agent.py`
+
+**Verify:** Agent with `WebAgent`, multi-step research prompt. Confirm result is summarized. Real tokens.
+
+---
+
+## Step 21 — `WebSearch` tool (agentic)
 
 Synthesized web search via sub-loop. No native counterpart.
 
 **Files:**
 - `nori/tools/web_search.py`
 
-**Verify:** Agent with `WebSearch`, research prompt. Real tokens.
+**Verify:** Agent with `WebSearch`, research prompt. Confirm synthesized result returned. Real tokens.
 
 ---
 
-## Step 17 — Bound tools
+## Step 22 — `CodeRunnerAgent` tool (agentic)
+
+First-class Python execution sub-agent: structured output, exception handling, multi-step coding tasks.
+
+**Files:**
+- `nori/tools/code_runner_agent.py`
+
+**Verify:** Agent with `CodeRunnerAgent`, prompt requiring iterative code execution and reasoning. Confirm structured result returned, exceptions handled. Real tokens.
+
+---
+
+## Step 23 — Bound tools
 
 `.bind()` on any built-in tool. Locks specified params, sets overridable defaults. Returns a new tool object compatible with `tools=[]`.
 
@@ -221,7 +282,7 @@ Synthesized web search via sub-loop. No native counterpart.
 
 ---
 
-## Step 18 — Anti-spin
+## Step 24 — Anti-spin
 
 `checkpoint=N` fires every N turns. Two isolated LLM calls: summarize recent turns, evaluate progress. `CheckpointScrutiny.STRICT/MODERATE/LENIENT` tunes the evaluation prompt. Raises `AntiSpinTerminated` on spin detection. `checkpoint_compact=True` replaces turns with summary on pass.
 
@@ -233,7 +294,7 @@ Synthesized web search via sub-loop. No native counterpart.
 
 ---
 
-## Step 19 — MCP integration
+## Step 25 — MCP integration
 
 `MCPServer` class with `name`, `command`/`args`/`env` (stdio) or `url` (HTTP/SSE). `mcp_servers=[]` on `Agent`. `add_mcp_server()` / `remove_mcp_server()`. Nori injects `reason` into discovered tool schemas.
 
@@ -246,29 +307,36 @@ Synthesized web search via sub-loop. No native counterpart.
 
 ---
 
-## Step 20 — Curated MCP server factories
+## Step 26 — Curated MCP server factories
 
 Pre-built `MCPServer` factories in `nori.mcp.servers`: `GitHub`, `Filesystem`, `Postgres`, `SQLite`, `Slack`, `BraveSearch`.
 
 **Files:**
-- `nori/mcp/servers.py`
+- `nori/mcp/servers/github.py`
+- `nori/mcp/servers/filesystem.py`
+- `nori/mcp/servers/postgres.py`
+- `nori/mcp/servers/sqlite.py`
+- `nori/mcp/servers/slack.py`
+- `nori/mcp/servers/brave_search.py`
 
-**Verify:** `GitHub(token="...")` returns a correctly configured `MCPServer`. Confirm at least one factory connects and exposes tools. Real tokens.
+**Verify:** Each factory returns a correctly configured `MCPServer`. Confirm at least one connects and exposes tools. Real tokens.
 
 ---
 
-## Step 21 — Self-modification tiers
+## Step 27 — Self-modification tiers
 
 `self_custodian`, `self_modify`, `self_mutation` constructor kwargs and runtime properties. Each tier unlocks a set of meta-tools. Tiers are additive.
 
 **Files:**
-- `nori/tools/self_modify.py`
+- `nori/tools/self_modify/custodian.py`
+- `nori/tools/self_modify/modify.py`
+- `nori/tools/self_modify/mutation.py`
 
-**Verify:** Agent with `self_custodian=True` calls `update_instructions()`. Confirm system prompt updates mid-run. Real tokens.
+**Verify:** Agent with `self_custodian=True` calls `update_system_prompt()`. Confirm system prompt updates mid-run. Real tokens.
 
 ---
 
-## Step 22 — Logging
+## Step 28 — Logging
 
 Wire `nori.agent` and `nori.narration` loggers throughout. All agent activity logged at appropriate levels.
 

@@ -122,6 +122,7 @@ Every built-in tool comes in two flavors: a **native** version and an **agentic*
 | `FileEdit` | Apply a targeted patch to a file |
 | `FileSearch` | Basic Search for files or content |
 | `WebClient` | Make a single HTTP request |
+| `CodeRunner` | Execute a Python 3 snippet, returns stdout |
 
 **Agentic** — spins up a sub-loop in a sacrificial context window to complete a complex goal, returns a summarized result:
 
@@ -132,6 +133,7 @@ Every built-in tool comes in two flavors: a **native** version and an **agentic*
 | `FileSearchAgent` | Deep search requiring reasoning across results |
 | `WebAgent` | Multi-step web interaction, scraping, research |
 | `WebSearch` | Synthesized web search (no native counterpart) |
+| `CodeRunnerAgent` | First-class Python execution: structured output, exception handling, multi-step coding tasks |
 
 The sacrificial context window is isolated — the main agent never sees the sub-loop's raw history, only the summary. All agentic tools summarize their results by default; this is not configurable. The `reason` field passed by the main agent serves as the summarizer's hint, same as with native tools.
 

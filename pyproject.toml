@@ -8,3 +8,20 @@ dependencies = [
     "openai>=2.36.0",
     "pydantic>=2.13.4",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+    "pytest-cov>=7.1.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--cov=nori --cov-report=term-missing"
+
+[tool.coverage.run]
+source = ["nori"]
+omit = ["nori/tools/self_modify/*"]
+
+[tool.coverage.report]
+show_missing = true

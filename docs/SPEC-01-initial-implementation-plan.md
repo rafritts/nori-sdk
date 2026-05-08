@@ -77,7 +77,7 @@ nori/
 
 ---
 
-## Step 1 — Package scaffold
+## Step 1 — Package scaffold ✓
 
 Create the `nori/` package and install dependencies.
 

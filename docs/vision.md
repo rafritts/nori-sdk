@@ -14,7 +14,7 @@ from nori.tools import Bash, FilePatching, WebSearch, Memory
 
 agent = Agent(
     name="Assistant",
-    model="gpt-4o",
+    model="grok-4.3",
     instructions="You are a helpful assistant",
     tools=[Bash, FilePatching, WebSearch, Memory],
     narration=True,
@@ -35,11 +35,11 @@ Nori uses the **OpenAI message format** as its canonical internal representation
 {"role": "tool", "tool_call_id": "...", "content": "..."}
 ```
 
-All completions go through `AsyncOpenAI` from the `openai` package. Because `AsyncOpenAI` accepts a `base_url`, Nori is provider-agnostic in practice — point it at OpenAI, Anthropic's compatibility endpoint, Ollama, Groq, or anything else that speaks the format:
+All completions go through `AsyncOpenAI` from the `openai` package. Because `AsyncOpenAI` accepts a `base_url`, Nori is provider-agnostic in practice — point it at OpenAI, Anthropic's compatibility endpoint, xAI's Grok, Ollama, Groq, or anything else that speaks the format:
 
 ```python
 agent = Agent(
-    model="gpt-4o",
+    model="grok-4.3",
     api_key="...",           # falls back to OPENAI_API_KEY env var
     base_url="https://...",  # optional, defaults to OpenAI
 )
@@ -87,19 +87,30 @@ The running context summary and scratchpad are injected as `user`-role system me
 
 ## Batteries Included Tools
 
-Tools ship with Nori and are imported directly. They come in two flavors:
+Every built-in tool comes in two flavors: a **native** version and an **agentic** version. They are imported separately and used interchangeably in `tools=[]`.
 
-**Native** — direct function call, returns a result:
-- Bash (sandboxed, with escape hatch)
-- File edit / file patching
-- File search
-- Web client / HTTP
+**Native** — a single call, raw result returned directly to the agent:
 
-**Agentic** — spins up a sub-loop to complete a goal:
-- Web search (synthesized results)
-- Skill search / skill runner
+| Tool | Use when |
+|------|----------|
+| `Bash` | Run a command, get output |
+| `FileEdit` | Apply a targeted patch to a file |
+| `FileSearch` | Basic Search for files or content |
+| `WebClient` | Make a single HTTP request |
 
-Every built-in tool requires a `reason` parameter — the model's explanation for why it is calling the tool. This is not optional.
+**Agentic** — spins up a sub-loop in a sacrificial context window to complete a complex goal, returns a summarized result:
+
+| Tool | Use when |
+|------|----------|
+| `BashAgent` | Multi-step shell work, cross-system operations |
+| `FileEditAgent` | Complex edits spanning many files |
+| `FileSearchAgent` | Deep search requiring reasoning across results |
+| `WebAgent` | Multi-step web interaction, scraping, research |
+| `WebSearch` | Synthesized web search (no native counterpart) |
+
+The sacrificial context window is isolated — the main agent never sees the sub-loop's raw history, only the summary. All agentic tools summarize their results by default; this is not configurable. The `reason` field passed by the main agent serves as the summarizer's hint, same as with native tools.
+
+Every tool requires a `reason` parameter — the model's explanation for why it is calling the tool. This is not optional.
 
 ## Custom Tools
 

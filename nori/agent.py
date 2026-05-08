@@ -6,6 +6,7 @@ from openai.types.chat import ChatCompletionMessage
 
 from nori.context import ContextFile, ContextRole, inject_summary, update_running_summary
 from nori.exceptions import MaxTurnsExceeded
+from nori.pricing import cost_for
 from nori.summarizer import summarize
 
 _COMPACT_WARNING = (
@@ -45,6 +46,9 @@ class Agent:
         self._running_summary: str = ""
         self.max_context_chars: int = 200_000
         self._compact_warning_injected: bool = False
+        self._prompt_tokens: int = 0
+        self._completion_tokens: int = 0
+        self._tool_calls_log: list[dict] = []
 
     @property
     def _client(self) -> AsyncOpenAI:
@@ -117,6 +121,7 @@ class Agent:
         args = json.loads(tc.function.arguments)
         reason = args.get("reason", "")
         self._narrate(tc.function.name, reason)
+        self._tool_calls_log.append({"name": tc.function.name, "args": args})
         result = await fn(**args)
         content = str(result)
         if self.summarize_tool_output and getattr(fn, "summarize_output", True):
@@ -132,7 +137,45 @@ class Agent:
         if self._tools:
             kwargs["tools"] = self._tool_schemas()
         response = await self._client.chat.completions.create(**kwargs)
+        if response.usage:
+            self._prompt_tokens += response.usage.prompt_tokens or 0
+            self._completion_tokens += response.usage.completion_tokens or 0
         return response.choices[0].message
+
+    # ── QoL properties ────────────────────────────────────────────────────────
+
+    @property
+    def history(self) -> list[dict]:
+        return self._history
+
+    @property
+    def turn_count(self) -> int:
+        return self._turn_count
+
+    @property
+    def token_counts(self) -> dict[str, int]:
+        return {"prompt": self._prompt_tokens, "completion": self._completion_tokens}
+
+    @property
+    def cost(self) -> float:
+        return cost_for(self.model, self._prompt_tokens, self._completion_tokens)
+
+    @property
+    def context_length(self) -> int:
+        return self._prompt_tokens + self._completion_tokens
+
+    @property
+    def tool_calls(self) -> list[dict]:
+        return self._tool_calls_log
+
+    def reset(self) -> None:
+        self._history = []
+        self._turn_count = 0
+        self._prompt_tokens = 0
+        self._completion_tokens = 0
+        self._tool_calls_log = []
+        self._running_summary = ""
+        self._compact_warning_injected = False
 
     async def run(self, prompt: str) -> str:
         self._history.append({"role": "user", "content": prompt})

@@ -5,6 +5,7 @@ from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionMessage
 
 from nori.anti_spin import CheckpointScrutiny, evaluate_checkpoint
+from nori.mcp.server import MCPServer
 from nori.context import ContextFile, ContextRole, inject_summary, update_running_summary
 from nori.exceptions import AntiSpinTerminated, MaxTurnsExceeded
 from nori.permissions import PermissionGuard
@@ -56,6 +57,7 @@ class Agent:
         self._running_summary: str = ""
         self.max_context_chars: int = 200_000
         self._compact_warning_injected: bool = False
+        self._mcp_servers: list[MCPServer] = []
         self._checkpoint = checkpoint
         self._checkpoint_scrutiny = checkpoint_scrutiny
         self._checkpoint_compact = checkpoint_compact
@@ -68,6 +70,32 @@ class Agent:
         if self.__client is None:
             self.__client = AsyncOpenAI(api_key=self._api_key, base_url=self._base_url)
         return self.__client
+
+    # ── MCP ───────────────────────────────────────────────────────────────────
+
+    @property
+    def mcp_servers(self) -> list[MCPServer]:
+        return self._mcp_servers
+
+    def add_mcp_server(self, server: MCPServer) -> None:
+        self._mcp_servers.append(server)
+
+    def remove_mcp_server(self, name: str) -> None:
+        self._mcp_servers = [s for s in self._mcp_servers if s.name != name]
+
+    @staticmethod
+    def _inject_reason_into_schema(schema: dict) -> dict:
+        """Ensure a discovered MCP tool schema has 'reason' in its required params."""
+        import copy
+        schema = copy.deepcopy(schema)
+        params = schema.get("function", {}).get("parameters", {})
+        props = params.setdefault("properties", {})
+        required = params.setdefault("required", [])
+        if "reason" not in props:
+            props["reason"] = {"type": "string", "description": "Your reason for calling this tool."}
+        if "reason" not in required:
+            required.append("reason")
+        return schema
 
     # ── Tool interface (Agent as a tool) ─────────────────────────────────────
 

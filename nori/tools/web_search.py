@@ -8,7 +8,6 @@ async def WebSearch(query: str) -> str:
     """Synthesize a web search result using a sub-agent research loop."""
     sub = Agent(
         name="WebSearch",
-        model="grok-4.3",
         system_prompt="You are a research assistant. Use WebClient to fetch pages and synthesize an answer.",
         tools=[WebClient],
     )

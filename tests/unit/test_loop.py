@@ -49,6 +49,7 @@ async def test_tool_call_dispatched():
         return "sunny"
 
     agent = Agent(name="T", model="grok-3", tools=[spy_tool])
+    agent.summarize_tool_output = False
     agent._complete = AsyncMock(side_effect=[
         make_tool_call_message("spy_tool", {"city": "Austin", "reason": "checking weather"}),
         make_text_message("It's sunny."),
@@ -64,6 +65,7 @@ async def test_tool_result_appended_to_history():
         return "result_value"
 
     agent = Agent(name="T", model="grok-3", tools=[my_tool])
+    agent.summarize_tool_output = False
     agent._complete = AsyncMock(side_effect=[
         make_tool_call_message("my_tool", {"x": "a", "reason": "r"}),
         make_text_message("Done."),
@@ -81,6 +83,7 @@ async def test_loop_iterates_until_no_tool_calls():
         return "ok"
 
     agent = Agent(name="T", model="grok-3", tools=[noop], max_turns=10)
+    agent.summarize_tool_output = False
     agent._complete = AsyncMock(side_effect=[
         make_tool_call_message("noop", {"x": "1", "reason": "r"}, "c1"),
         make_tool_call_message("noop", {"x": "2", "reason": "r"}, "c2"),
@@ -107,6 +110,7 @@ async def test_parallel_tools_both_called():
         return "b"
 
     agent = Agent(name="T", model="grok-3", tools=[tool_a, tool_b])
+    agent.summarize_tool_output = False
     tc_a = MagicMock()
     tc_a.id = "c_a"
     tc_a.function.name = "tool_a"
@@ -136,6 +140,7 @@ async def test_parallel_results_both_appended():
         return "r2"
 
     agent = Agent(name="T", model="grok-3", tools=[t1, t2])
+    agent.summarize_tool_output = False
     tc1 = MagicMock()
     tc1.id = "c1"
     tc1.function.name = "t1"

@@ -4,7 +4,7 @@ import json
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionMessage
 
-from nori.context import ContextFile, ContextRole
+from nori.context import ContextFile, ContextRole, inject_summary, update_running_summary
 from nori.exceptions import MaxTurnsExceeded
 from nori.summarizer import summarize
 
@@ -36,6 +36,8 @@ class Agent:
         self.narrator_prefix: str = ""
         self.on_narration = self._default_narrator
         self.summarize_tool_output: bool = True
+        self.running_context_summary: bool = False
+        self._running_summary: str = ""
 
     @property
     def _client(self) -> AsyncOpenAI:
@@ -126,6 +128,11 @@ class Agent:
                 self.on_narration(f"{self.narrator_prefix}{message.content}")
 
             if not message.tool_calls:
+                if self.running_context_summary:
+                    self._running_summary = await update_running_summary(
+                        self._history, self._running_summary, self._client, self.model
+                    )
+                    self._history = inject_summary(self._history, self._running_summary)
                 return message.content or ""
 
             tool_results = await self._execute_tools(message.tool_calls)

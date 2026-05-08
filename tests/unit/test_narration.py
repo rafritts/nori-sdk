@@ -32,7 +32,9 @@ def spy_tool(city: str) -> str:
 
 
 def make_agent(**kwargs):
-    return Agent(name="T", model="grok-3", tools=[spy_tool], **kwargs)
+    agent = Agent(name="T", model="grok-3", tools=[spy_tool], **kwargs)
+    agent.summarize_tool_output = False
+    return agent
 
 
 async def test_narration_false_does_not_fire():
@@ -58,6 +60,7 @@ async def test_on_narration_fires_before_tool_execution():
         return "ok"
 
     agent = Agent(name="T", model="grok-3", tools=[ordered_tool])
+    agent.summarize_tool_output = False
     agent.narration = True
     agent.on_narration = lambda s: order.append("narration")
     agent._complete = AsyncMock(side_effect=[

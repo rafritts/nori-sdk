@@ -4,8 +4,9 @@ import json
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionMessage
 
+from nori.anti_spin import CheckpointScrutiny, evaluate_checkpoint
 from nori.context import ContextFile, ContextRole, inject_summary, update_running_summary
-from nori.exceptions import MaxTurnsExceeded
+from nori.exceptions import AntiSpinTerminated, MaxTurnsExceeded
 from nori.permissions import PermissionGuard
 from nori.pricing import cost_for
 from nori.summarizer import summarize
@@ -30,6 +31,9 @@ class Agent:
         allow: list[str] = None,
         deny: list[str] = None,
         description: str = "",
+        checkpoint: int | None = None,
+        checkpoint_scrutiny: CheckpointScrutiny = CheckpointScrutiny.MODERATE,
+        checkpoint_compact: bool = False,
     ):
         self.name = name
         self.model = model
@@ -52,6 +56,9 @@ class Agent:
         self._running_summary: str = ""
         self.max_context_chars: int = 200_000
         self._compact_warning_injected: bool = False
+        self._checkpoint = checkpoint
+        self._checkpoint_scrutiny = checkpoint_scrutiny
+        self._checkpoint_compact = checkpoint_compact
         self._prompt_tokens: int = 0
         self._completion_tokens: int = 0
         self._tool_calls_log: list[dict] = []
@@ -246,6 +253,18 @@ class Agent:
 
             if message.content and message.tool_calls and self.narration:
                 self.on_narration(f"{self.narrator_prefix}{message.content}")
+
+            if self._checkpoint and self._turn_count % self._checkpoint == 0:
+                recent = self._history[-self._checkpoint * 4:]
+                is_spin, summary = await evaluate_checkpoint(
+                    recent, self._checkpoint_scrutiny, self._client, self.model
+                )
+                if is_spin:
+                    raise AntiSpinTerminated(
+                        f"Anti-spin triggered at turn {self._turn_count}. Summary: {summary}"
+                    )
+                if self._checkpoint_compact:
+                    self._history = inject_summary(self._history, summary)
 
             if not message.tool_calls:
                 if self.running_context_summary:

@@ -356,6 +356,23 @@ agent.remove_mcp_server(filesystem)
 
 `MCPServer` objects are shareable — the same instance can be registered with multiple agents.
 
+**Curated servers** — Nori ships pre-built `MCPServer` factories for major use cases in `nori.mcp.servers`. These are not an exhaustive registry — just the ones that matter, done well:
+
+```python
+from nori.mcp.servers import GitHub, Filesystem, Postgres, SQLite, Slack, BraveSearch
+
+agent = Agent(
+    ...,
+    mcp_servers=[
+        GitHub(token="..."),
+        Filesystem("/tmp"),
+        Postgres(url="postgresql://..."),
+    ]
+)
+```
+
+Each factory returns a fully configured `MCPServer`. The user supplies only environment-specific values — tokens, paths, connection strings. Everything else is handled.
+
 ## Logging
 
 All agent activity is written to a standard Python `logging` logger at `nori.agent`. Narration gets its own logger at `nori.narration`, making it easy to route to a separate file or handler:

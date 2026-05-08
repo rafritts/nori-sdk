@@ -6,6 +6,75 @@ Tests use real API calls — no mocks.
 
 ---
 
+## Architecture — Option B
+
+Agent shell with internal modules. SRP where clean, pragmatic where forcing it creates ceremony.
+
+```
+nori/
+  __init__.py              # exports: Agent, tool, ContextFile, ContextRole,
+                           #          CheckpointScrutiny
+  agent.py                 # Agent: public API, config, loop orchestration
+  completer.py             # wraps AsyncOpenAI, single _complete() coroutine
+  tool_registry.py         # registers tools, builds schemas, resolves call → fn
+  tool_executor.py         # executes tools concurrently via asyncio.gather
+  narrator.py              # on_narration / on_tool_result, default formatter
+  context.py               # history, running summary, compaction (owns both)
+  permissions.py           # allow/deny enforcement
+  anti_spin.py             # checkpoint evaluation, AntiSpinTerminated
+  pricing.py               # ModelPricing table, cost/token calculation
+  tool.py                  # @tool decorator, reason injection, schema generation
+  exceptions.py            # MaxTurnsExceeded, AntiSpinTerminated, PermissionError
+
+  tools/
+    __init__.py
+    base.py                # BaseTool, .bind()
+    bash.py
+    file_edit.py
+    file_search.py
+    web_client.py
+    code_runner.py
+    bash_agent.py
+    file_edit_agent.py
+    file_search_agent.py
+    web_agent.py
+    web_search.py
+    code_runner_agent.py
+    compact.py
+    self_modify/
+      __init__.py
+      custodian.py
+      modify.py
+      mutation.py
+
+  mcp/
+    __init__.py
+    server.py              # MCPServer dataclass
+    connector.py           # connects, discovers schemas, injects reason
+    servers/
+      __init__.py
+      github.py
+      filesystem.py
+      postgres.py
+      sqlite.py
+      slack.py
+      brave_search.py
+```
+
+**Single responsibilities:**
+- `agent.py` — public API and loop orchestration. Allowed to know the loop exists.
+- `completer.py` — one job: talk to AsyncOpenAI
+- `tool_registry.py` — knows what tools exist and how to call them
+- `tool_executor.py` — knows how to run tools concurrently
+- `narrator.py` — knows how to emit narration (also logs to `nori.narration`)
+- `context.py` — owns history mutations and compaction together (pragmatic)
+- `permissions.py` — enforces allow/deny, nothing else
+- `anti_spin.py` — checkpoint logic, nothing else
+- `pricing.py` — token counting and cost math, nothing else
+- `tool.py` — decorator, schema generation, reason injection
+
+---
+
 ## Step 1 — Package scaffold
 
 Create the `nori/` package and install dependencies.

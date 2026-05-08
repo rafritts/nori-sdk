@@ -91,6 +91,70 @@ async def test_loop_iterates_until_no_tool_calls():
     assert result == "Done."
 
 
+async def test_parallel_tools_both_called():
+    results = []
+
+    @tool
+    def tool_a(x: str) -> str:
+        """A."""
+        results.append("a")
+        return "a"
+
+    @tool
+    def tool_b(x: str) -> str:
+        """B."""
+        results.append("b")
+        return "b"
+
+    agent = Agent(name="T", model="grok-3", tools=[tool_a, tool_b])
+    tc_a = MagicMock()
+    tc_a.id = "c_a"
+    tc_a.function.name = "tool_a"
+    tc_a.function.arguments = json.dumps({"x": "1", "reason": "r"})
+    tc_b = MagicMock()
+    tc_b.id = "c_b"
+    tc_b.function.name = "tool_b"
+    tc_b.function.arguments = json.dumps({"x": "2", "reason": "r"})
+    multi = MagicMock()
+    multi.content = None
+    multi.tool_calls = [tc_a, tc_b]
+
+    agent._complete = AsyncMock(side_effect=[multi, make_text_message("done")])
+    await agent.run("go")
+    assert "a" in results and "b" in results
+
+
+async def test_parallel_results_both_appended():
+    @tool
+    def t1(x: str) -> str:
+        """T1."""
+        return "r1"
+
+    @tool
+    def t2(x: str) -> str:
+        """T2."""
+        return "r2"
+
+    agent = Agent(name="T", model="grok-3", tools=[t1, t2])
+    tc1 = MagicMock()
+    tc1.id = "c1"
+    tc1.function.name = "t1"
+    tc1.function.arguments = json.dumps({"x": "a", "reason": "r"})
+    tc2 = MagicMock()
+    tc2.id = "c2"
+    tc2.function.name = "t2"
+    tc2.function.arguments = json.dumps({"x": "b", "reason": "r"})
+    multi = MagicMock()
+    multi.content = None
+    multi.tool_calls = [tc1, tc2]
+
+    agent._complete = AsyncMock(side_effect=[multi, make_text_message("done")])
+    await agent.run("go")
+    tool_msgs = [m for m in agent._history if m.get("role") == "tool"]
+    contents = {m["content"] for m in tool_msgs}
+    assert contents == {"r1", "r2"}
+
+
 async def test_max_turns_raises():
     agent = Agent(name="T", model="grok-3", max_turns=2)
     agent._complete = AsyncMock(return_value=make_text_message("ok"))

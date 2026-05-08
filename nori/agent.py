@@ -1,3 +1,4 @@
+import asyncio
 import json
 
 from openai import AsyncOpenAI
@@ -76,18 +77,14 @@ class Agent:
             ]
         return d
 
+    async def _invoke_tool(self, tc) -> dict:
+        fn = self._tools[tc.function.name]
+        args = json.loads(tc.function.arguments)
+        result = await fn(**args)
+        return {"role": "tool", "tool_call_id": tc.id, "content": str(result)}
+
     async def _execute_tools(self, tool_calls) -> list[dict]:
-        results = []
-        for tc in tool_calls:
-            fn = self._tools[tc.function.name]
-            args = json.loads(tc.function.arguments)
-            result = await fn(**args)
-            results.append({
-                "role": "tool",
-                "tool_call_id": tc.id,
-                "content": str(result),
-            })
-        return results
+        return list(await asyncio.gather(*[self._invoke_tool(tc) for tc in tool_calls]))
 
     async def _complete(self, history: list[dict]) -> ChatCompletionMessage:
         messages = self._build_messages(history)

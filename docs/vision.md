@@ -18,11 +18,11 @@ agent = Agent(
     instructions="You are a helpful assistant",
     tools=[Bash, FilePatching, WebSearch, Memory],
     narration=True,
+    narrator_prefix="[::] ",
+    running_context_summary=True,
 )
 
-agent.narrator_prefix = "[::] "
 agent.on_narration = lambda msg: print(msg)
-agent.running_context_summary = True
 ```
 
 ## Completions
@@ -143,9 +143,23 @@ agent.on_narration = lambda text: print(f"[::] {text}")
 agent.on_tool_result = lambda name, result: log(name, result)
 ```
 
+The default narration output is `tool_name[reason]`, printed to stdout:
+
+```
+bash[Reading the git log to find when this file last changed]
+file_patch[Updating the retry logic in the request handler]
+get_weather[User asked for the current weather in Austin]
+```
+
+Supplying a custom `on_narration` callback replaces the default entirely. The callback receives the already-formatted string — tool name is resolved via `inspect` and baked in before the callback fires:
+
+```python
+agent.on_narration = lambda narration: print(f"[::] {narration}")
+```
+
 A CLI prints narration and shows a spinner. A Discord bot sends it as a message. A web UI streams it into a sidebar. Nori is output-agnostic.
 
-The narrator prefix is configurable (`agent.narrator_prefix`). Narration can be disabled entirely with `narration=False`, which suppresses `on_narration` callbacks but does not remove `reason` from the tool schema — the model still supplies it.
+The narrator prefix is configurable (`narrator_prefix`). Narration can be disabled entirely with `narration=False`, which suppresses all narration output but does not remove `reason` from the tool schema — the model still supplies it.
 
 ## Permissions
 
@@ -180,7 +194,8 @@ Long-horizon coherence is a first-class concern. Agents on long tasks drift, rep
 
 ```python
 agent = Agent(
-    ...
+    ...,
+    autocompact=True,           # default
     running_context_summary=True,
 )
 ```

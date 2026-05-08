@@ -188,9 +188,13 @@ Long-horizon coherence is a first-class concern. Agents on long tasks drift, rep
 
 **Running context summary** — after each turn, Nori maintains a rolling summary of what the agent has done, what it found, and where it is in the task. This summary is injected into the system prompt so it survives compaction and the agent never loses the thread.
 
-**Autocompaction** — on by default. Triggered automatically before the context window fills. The running summary is the compaction anchor — you always compact into the summary, never into nothing.
+**Autocompaction** — on by default and forced. At 70% context window fill, Nori injects a user-role message into the conversation:
 
-**Result summarization** — large tool results (e.g. a 10k line grep) can be summarized before being appended to the conversation. The agent saw the full output; the context carries only the summary. Configured per-tool via the `@tool` decorator (API TBD).
+> "You are at 70% full context window. You will auto compact at 85%, or you can choose to compact() sooner."
+
+The agent can respond by calling the built-in `Compact` tool at a natural stopping point, or do nothing and let autocompaction trigger at 85%. Either path runs the same compaction logic. The running summary is the compaction anchor — you always compact into the summary, never into nothing.
+
+**Result summarization** — on by default. Before a tool result is appended to the conversation, it goes through a separate summarization pass. The agent saw the full output; the context carries only the summary. The tool call's `reason` field is passed to the summarizer as the hint for what to keep and what to discard — the agent's stated intent drives the summarization. Opt out per-tool with `@tool(summarize_output=False)` for tools where the raw output must be preserved.
 
 ```python
 agent = Agent(
@@ -284,6 +288,44 @@ If the judgment is **progressing**: the loop continues. If `checkpoint_compact=T
 - `max_turns=None` and `checkpoint` are independent — you can use `checkpoint` with a finite `max_turns` as an early-exit heuristic, though the typical pairing is `max_turns=None + checkpoint`.
 - If the agent finishes naturally before the checkpoint fires, anti-spin never runs.
 
-## Other Features
+## Running the Agent
 
-- Visibility / audit / monitoring / logging out of the box
+```python
+response = await agent.run("Refactor the auth module to use the new token format")
+print(response)
+```
+
+`agent.run()` is a coroutine. It starts the tool-calling loop, fires narration callbacks throughout, and returns the final response text when the loop terminates.
+
+## Error Handling
+
+Tool errors are returned to the model as tool results — not raised to the caller. The model sees the error text and decides what to do: retry with different arguments, try a different approach, or abandon the subtask. The existing `max_turns` ceiling is the natural backstop.
+
+The caller only sees an exception if the framework itself fails (API error, `MaxTurnsExceeded`, `AntiSpinTerminated`).
+
+## QoL Properties
+
+Read-only properties on `Agent` for inspecting runtime state:
+
+```python
+agent.context_length    # total tokens in current conversation history
+agent.token_counts      # dataclass: input, output, cached, total
+agent.cost              # estimated cost in USD based on model pricing and token counts
+agent.turn_count        # number of turns elapsed
+agent.history           # raw list[dict] conversation history
+agent.tool_calls        # all tool calls made so far, in order
+agent.reset()           # clear history and turn count, keep config
+```
+
+`cost` is computed from a built-in `dict[str, ModelPricing]` keyed by model name. Prices are hardcoded and updated as models change.
+
+## Logging
+
+All agent activity is written to a standard Python `logging` logger at `nori.agent`. Narration gets its own logger at `nori.narration`, making it easy to route to a separate file or handler:
+
+```python
+import logging
+logging.getLogger("nori.narration").setLevel(logging.DEBUG)
+```
+
+No special configuration required — standard `logging` setup applies.

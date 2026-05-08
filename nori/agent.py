@@ -6,6 +6,7 @@ from openai.types.chat import ChatCompletionMessage
 
 from nori.context import ContextFile, ContextRole, inject_summary, update_running_summary
 from nori.exceptions import MaxTurnsExceeded
+from nori.permissions import PermissionGuard
 from nori.pricing import cost_for
 from nori.summarizer import summarize
 
@@ -26,6 +27,8 @@ class Agent:
         context_files: list[ContextFile] = None,
         tools: list = None,
         max_turns: int | None = 10,
+        allow: list[str] = None,
+        deny: list[str] = None,
     ):
         self.name = name
         self.model = model
@@ -35,6 +38,7 @@ class Agent:
         self._base_url = base_url
         self.__client: AsyncOpenAI | None = None
         self._tools: dict = {self._tool_name(t): t for t in (tools or [])}
+        self._permissions = PermissionGuard(allow, deny)
         self._max_turns = max_turns
         self._history: list[dict] = []
         self._turn_count = 0
@@ -117,6 +121,7 @@ class Agent:
         if tc.function.name == "Compact":
             await self._compact()
             return {"role": "tool", "tool_call_id": tc.id, "content": "History compacted."}
+        self._permissions.check(tc.function.name)
         fn = self._tools[tc.function.name]
         args = json.loads(tc.function.arguments)
         reason = args.get("reason", "")

@@ -17,8 +17,8 @@ Complete the following steps in order:
 3. Use curl to fetch weather for Austin TX from wttr.in (plain text format: curl 'wttr.in/Austin?format=3') and append the result to the file
 4. cat the file to show its contents
 5. Rename the file to /tmp/nori_demo_final.txt
-6. cat the renamed file to confirm the rename worked
-7. Delete the file
+6. cat the renamed file to confirm the rename worked and pipe it into a copy of the file
+7. Delete the original file
 
 Do each step explicitly and show all output.
 """

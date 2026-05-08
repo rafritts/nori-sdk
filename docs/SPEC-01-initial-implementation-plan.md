@@ -271,7 +271,18 @@ First-class Python execution sub-agent: structured output, exception handling, m
 
 ---
 
-## Step 23 — Bound tools
+## Step 23 — Agents as tools
+
+`Agent` implements the tool interface: `name`, `description` (falls back to `system_prompt` if not set), and `__call__`. Any `Agent` can be passed into another agent's `tools=[]`. The child agent runs its full loop in an isolated context window and returns a summarized result. The `reason` requirement applies — the parent agent must supply one.
+
+**Files:**
+- `nori/agent.py` (implement tool interface)
+
+**Verify:** Two agents — a `Researcher` and a `Coder` — registered as tools on an `Orchestrator`. Prompt that requires both to be called. Confirm each sub-agent runs its own loop, results are summarized, orchestrator history stays clean. Real tokens.
+
+---
+
+## Step 24 — Bound tools
 
 `.bind()` on any built-in tool. Locks specified params, sets overridable defaults. Returns a new tool object compatible with `tools=[]`.
 
@@ -282,7 +293,7 @@ First-class Python execution sub-agent: structured output, exception handling, m
 
 ---
 
-## Step 24 — Anti-spin
+## Step 25 — Anti-spin
 
 `checkpoint=N` fires every N turns. Two isolated LLM calls: summarize recent turns, evaluate progress. `CheckpointScrutiny.STRICT/MODERATE/LENIENT` tunes the evaluation prompt. Raises `AntiSpinTerminated` on spin detection. `checkpoint_compact=True` replaces turns with summary on pass.
 
@@ -294,7 +305,7 @@ First-class Python execution sub-agent: structured output, exception handling, m
 
 ---
 
-## Step 25 — MCP integration
+## Step 26 — MCP integration
 
 `MCPServer` class with `name`, `command`/`args`/`env` (stdio) or `url` (HTTP/SSE). `mcp_servers=[]` on `Agent`. `add_mcp_server()` / `remove_mcp_server()`. Nori injects `reason` into discovered tool schemas.
 
@@ -307,7 +318,7 @@ First-class Python execution sub-agent: structured output, exception handling, m
 
 ---
 
-## Step 26 — Curated MCP server factories
+## Step 27 — Curated MCP server factories
 
 Pre-built `MCPServer` factories in `nori.mcp.servers`: `GitHub`, `Filesystem`, `Postgres`, `SQLite`, `Slack`, `BraveSearch`.
 
@@ -323,7 +334,7 @@ Pre-built `MCPServer` factories in `nori.mcp.servers`: `GitHub`, `Filesystem`, `
 
 ---
 
-## Step 27 — Self-modification tiers
+## Step 28 — Self-modification tiers
 
 `self_custodian`, `self_modify`, `self_mutation` constructor kwargs and runtime properties. Each tier unlocks a set of meta-tools. Tiers are additive.
 
@@ -336,7 +347,7 @@ Pre-built `MCPServer` factories in `nori.mcp.servers`: `GitHub`, `Filesystem`, `
 
 ---
 
-## Step 28 — Logging
+## Step 29 — Logging
 
 Wire `nori.agent` and `nori.narration` loggers throughout. All agent activity logged at appropriate levels.
 

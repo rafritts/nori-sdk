@@ -166,6 +166,39 @@ agent = Agent(tools=[Bash, get_weather, search])
 
 The `@tool` decorator automatically injects a required `reason: str` parameter into the tool's schema. The model must supply it; the underlying function never sees it. Built-in and custom tools are treated identically — same list, same interface, same `reason` requirement.
 
+## Agents as Tools
+
+Any `Agent` instance can be passed directly into another agent's `tools=[]`. To the parent agent, it looks identical to any other tool — a name, a description, and a function that returns a string. The child agent runs its full loop in an isolated context window and returns a summarized result.
+
+```python
+researcher = Agent(
+    name="Researcher",
+    model="grok-4.3",
+    system_prompt="You are a deep research specialist.",
+    tools=[WebSearch, WebAgent],
+)
+
+coder = Agent(
+    name="Coder",
+    model="grok-4.3",
+    system_prompt="You are an expert Python engineer.",
+    tools=[Bash, FileEdit, CodeRunnerAgent],
+)
+
+orchestrator = Agent(
+    name="Orchestrator",
+    model="grok-4.3",
+    system_prompt="You coordinate research and coding tasks.",
+    tools=[researcher, coder],
+)
+
+response = await orchestrator.run("Research the best async Python HTTP libraries and implement a comparison benchmark.")
+```
+
+The orchestrator never sees the sub-agents' raw history — only their summarized results. The `reason` field the orchestrator provides when calling a sub-agent serves as the summarization hint, same as any other tool.
+
+`Agent` implements the tool interface: it has a `name`, a `description` (derived from `system_prompt` if not set explicitly), and is callable. The same `reason` requirement applies — the orchestrator must supply one when invoking a sub-agent.
+
 ## Bound Tools
 
 Built-in tools can be pre-configured with `.bind()` — locking some parameters and setting defaults for others. The result is a new tool the model calls by name, supplying only `reason` and any unlocked optional params.

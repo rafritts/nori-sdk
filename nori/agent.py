@@ -31,12 +31,22 @@ class Agent:
         self._max_turns = max_turns
         self._history: list[dict] = []
         self._turn_count = 0
+        self.narration: bool = False
+        self.narrator_prefix: str = ""
+        self.on_narration = self._default_narrator
 
     @property
     def _client(self) -> AsyncOpenAI:
         if self.__client is None:
             self.__client = AsyncOpenAI(api_key=self._api_key, base_url=self._base_url)
         return self.__client
+
+    def _default_narrator(self, text: str) -> None:
+        print(text)
+
+    def _narrate(self, tool_name: str, reason: str) -> None:
+        if self.narration:
+            self.on_narration(f"{self.narrator_prefix}{tool_name}[{reason}]")
 
     def _tool_name(self, t) -> str:
         return t.schema["function"]["name"]
@@ -80,6 +90,8 @@ class Agent:
     async def _invoke_tool(self, tc) -> dict:
         fn = self._tools[tc.function.name]
         args = json.loads(tc.function.arguments)
+        reason = args.get("reason", "")
+        self._narrate(tc.function.name, reason)
         result = await fn(**args)
         return {"role": "tool", "tool_call_id": tc.id, "content": str(result)}
 
@@ -104,6 +116,9 @@ class Agent:
             message = await self._complete(self._history)
             self._turn_count += 1
             self._history.append(self._message_to_dict(message))
+
+            if message.content and message.tool_calls and self.narration:
+                self.on_narration(f"{self.narrator_prefix}{message.content}")
 
             if not message.tool_calls:
                 return message.content or ""

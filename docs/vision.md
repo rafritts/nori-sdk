@@ -139,6 +139,33 @@ agent = Agent(tools=[Bash, get_weather, search])
 
 The `@tool` decorator automatically injects a required `reason: str` parameter into the tool's schema. The model must supply it; the underlying function never sees it. Built-in and custom tools are treated identically — same list, same interface, same `reason` requirement.
 
+## Bound Tools
+
+Built-in tools can be pre-configured with `.bind()` — locking some parameters and setting defaults for others. The result is a new tool the model calls by name, supplying only `reason` and any unlocked optional params.
+
+Locked params are set from Python variables at bind time, so the same tool definition works across different runtime contexts without creating a new tool per value:
+
+```python
+config_path = get_config_dir()
+
+search_configs = FileSearch.bind(
+    name="search_configs",
+    description=f"Search for a pattern inside {config_path}",
+    path=config_path,   # locked — model cannot change this
+    max_results=10,     # default — model can override
+)
+
+list_src = Bash.bind(
+    name="list_src",
+    description="List all Python files in src/",
+    command="find src -name '*.py'",  # locked
+)
+
+agent = Agent(tools=[search_configs, list_src])
+```
+
+Bound tools appear identically to built-in and custom tools in `tools=[]` — same interface, same `reason` requirement.
+
 ## Narration
 
 Narration comes from two sources:

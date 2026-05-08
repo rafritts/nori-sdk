@@ -8,6 +8,11 @@ from nori.context import ContextFile, ContextRole, inject_summary, update_runnin
 from nori.exceptions import MaxTurnsExceeded
 from nori.summarizer import summarize
 
+_COMPACT_WARNING = (
+    "[System] Context window is 70% full. Consider wrapping up or calling Compact."
+)
+_COMPACT_MARKER = "__compact_warning__"
+
 
 class Agent:
     def __init__(
@@ -38,12 +43,25 @@ class Agent:
         self.summarize_tool_output: bool = True
         self.running_context_summary: bool = False
         self._running_summary: str = ""
+        self.max_context_chars: int = 200_000
+        self._compact_warning_injected: bool = False
 
     @property
     def _client(self) -> AsyncOpenAI:
         if self.__client is None:
             self.__client = AsyncOpenAI(api_key=self._api_key, base_url=self._base_url)
         return self.__client
+
+    def _context_fill(self) -> float:
+        total = sum(len(str(m.get("content", ""))) for m in self._history)
+        return total / self.max_context_chars if self.max_context_chars else 0.0
+
+    async def _compact(self) -> None:
+        self._running_summary = await update_running_summary(
+            self._history, self._running_summary, self._client, self.model
+        )
+        self._history = inject_summary(self._history, self._running_summary)
+        self._compact_warning_injected = False
 
     def _default_narrator(self, text: str) -> None:
         print(text)
@@ -92,6 +110,9 @@ class Agent:
         return d
 
     async def _invoke_tool(self, tc) -> dict:
+        if tc.function.name == "Compact":
+            await self._compact()
+            return {"role": "tool", "tool_call_id": tc.id, "content": "History compacted."}
         fn = self._tools[tc.function.name]
         args = json.loads(tc.function.arguments)
         reason = args.get("reason", "")
@@ -123,6 +144,17 @@ class Agent:
             message = await self._complete(self._history)
             self._turn_count += 1
             self._history.append(self._message_to_dict(message))
+
+            fill = self._context_fill()
+            if fill >= 0.85:
+                await self._compact()
+            elif fill >= 0.70 and not self._compact_warning_injected:
+                self._history.append({
+                    "role": "user",
+                    "content": _COMPACT_WARNING,
+                    "_marker": _COMPACT_MARKER,
+                })
+                self._compact_warning_injected = True
 
             if message.content and message.tool_calls and self.narration:
                 self.on_narration(f"{self.narrator_prefix}{message.content}")

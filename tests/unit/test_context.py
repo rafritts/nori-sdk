@@ -29,7 +29,7 @@ def make_agent_with_mock(side_effects, **kwargs):
         mock_client = MagicMock()
         mock_client.chat.completions.create = AsyncMock(side_effect=side_effects)
         MockOpenAI.return_value = mock_client
-        agent = Agent(name="T", model="grok-3", **kwargs)
+        agent = Agent(name="T", model="grok-4.3", **kwargs)
         return agent, mock_client
 
 
@@ -40,7 +40,7 @@ async def test_disabled_by_default():
             return_value=MagicMock(choices=[MagicMock(message=make_text_message())])
         )
         MockOpenAI.return_value = mock_client
-        agent = Agent(name="T", model="grok-3")
+        agent = Agent(name="T", model="grok-4.3")
         await agent.run("hi")
         assert not any(m.get("_marker") == "__running_summary__" for m in agent._history)
 
@@ -53,7 +53,7 @@ async def test_summary_injected_at_top_of_history():
         mock_client.chat.completions.create = AsyncMock(side_effect=[main_resp, sum_resp])
         MockOpenAI.return_value = mock_client
 
-        agent = Agent(name="T", model="grok-3")
+        agent = Agent(name="T", model="grok-4.3")
         agent.running_context_summary = True
         await agent.run("do something")
 
@@ -70,12 +70,65 @@ async def test_summary_role_is_user():
         mock_client.chat.completions.create = AsyncMock(side_effect=[main_resp, sum_resp])
         MockOpenAI.return_value = mock_client
 
-        agent = Agent(name="T", model="grok-3")
+        agent = Agent(name="T", model="grok-4.3")
         agent.running_context_summary = True
         await agent.run("go")
 
         summary_msgs = [m for m in agent._history if m.get("_marker") == "__running_summary__"]
         assert summary_msgs[0]["role"] == "user"
+
+
+async def test_warning_injected_at_70_percent():
+    with patch("nori.agent.AsyncOpenAI") as MockOpenAI:
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = AsyncMock(
+            return_value=MagicMock(choices=[MagicMock(message=make_text_message())])
+        )
+        MockOpenAI.return_value = mock_client
+
+        agent = Agent(name="T", model="grok-4.3")
+        agent.max_context_chars = 100
+        # Fill history to > 70% of 100 chars
+        agent._history = [{"role": "user", "content": "x" * 75}]
+        await agent.run("hi")
+        warning_msgs = [m for m in agent._history if m.get("_marker") == "__compact_warning__"]
+        assert len(warning_msgs) == 1
+
+
+async def test_warning_not_injected_twice():
+    with patch("nori.agent.AsyncOpenAI") as MockOpenAI:
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = AsyncMock(
+            return_value=MagicMock(choices=[MagicMock(message=make_text_message())])
+        )
+        MockOpenAI.return_value = mock_client
+
+        agent = Agent(name="T", model="grok-4.3")
+        agent.max_context_chars = 100
+        agent._history = [{"role": "user", "content": "x" * 75}]
+        await agent.run("hi")
+        await agent.run("hi again")
+        warning_msgs = [m for m in agent._history if m.get("_marker") == "__compact_warning__"]
+        assert len(warning_msgs) == 1
+
+
+async def test_compaction_fires_at_85_percent():
+    with patch("nori.agent.AsyncOpenAI") as MockOpenAI:
+        mock_client = MagicMock()
+        summary_resp = summary_response("compacted summary")
+        main_resp = MagicMock(choices=[MagicMock(message=make_text_message())])
+        mock_client.chat.completions.create = AsyncMock(
+            side_effect=[main_resp, summary_resp]
+        )
+        MockOpenAI.return_value = mock_client
+
+        agent = Agent(name="T", model="grok-4.3")
+        agent.max_context_chars = 100
+        agent._history = [{"role": "user", "content": "x" * 90}]
+        await agent.run("hi")
+
+        summary_msgs = [m for m in agent._history if m.get("_marker") == "__running_summary__"]
+        assert len(summary_msgs) == 1
 
 
 async def test_summary_updates_each_run():
@@ -89,7 +142,7 @@ async def test_summary_updates_each_run():
         ])
         MockOpenAI.return_value = mock_client
 
-        agent = Agent(name="T", model="grok-3")
+        agent = Agent(name="T", model="grok-4.3")
         agent.running_context_summary = True
         await agent.run("first")
         await agent.run("second")

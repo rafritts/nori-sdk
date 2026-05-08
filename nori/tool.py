@@ -24,6 +24,8 @@ def tool(_fn: Callable = None, *, summarize_output: bool = True):
         required = ["reason"]
 
         for name, param in sig.parameters.items():
+            if name == "reason":
+                continue
             properties[name] = {"type": _TYPE_MAP.get(hints.get(name), "string")}
             if param.default is inspect.Parameter.empty:
                 required.append(name)

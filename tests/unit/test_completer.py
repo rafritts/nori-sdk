@@ -8,7 +8,7 @@ from nori import Agent, ContextFile, ContextRole
 
 
 def make_agent(**kwargs):
-    defaults = dict(name="Test", model="grok-3", system_prompt="You are helpful.")
+    defaults = dict(name="Test", model="grok-4.3", system_prompt="You are helpful.")
     return Agent(**{**defaults, **kwargs})
 
 

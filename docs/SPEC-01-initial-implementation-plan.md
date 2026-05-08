@@ -98,7 +98,7 @@ Create the `nori/` package and install dependencies.
 
 ---
 
-## Step 2 — `@tool` decorator
+## Step 2 — `@tool` decorator ✓
 
 Introspect a function's name, docstring, and type annotations to build an OpenAI-compatible tool schema. Inject `reason: str` as a required parameter. Strip `reason` before calling the underlying function.
 

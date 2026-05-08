@@ -6,5 +6,5 @@ def test_agent_importable():
 
 
 def test_agent_instantiable():
-    agent = Agent()
+    agent = Agent(name="Test", model="grok-3")
     assert isinstance(agent, Agent)

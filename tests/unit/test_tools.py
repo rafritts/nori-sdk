@@ -84,3 +84,60 @@ async def test_file_search_no_match_returns_empty(tmp_path):
     from nori.tools.file_search import FileSearch
     result = await FileSearch(path=str(tmp_path), pattern="*.xyz", reason="r")
     assert result == "No matches found."
+
+
+# ── WebClient ─────────────────────────────────────────────────────────────────
+
+async def test_web_client_returns_response_body():
+    from unittest.mock import AsyncMock, MagicMock, patch
+    from nori.tools.web_client import WebClient
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.text = "Hello from server"
+
+    mock_client = AsyncMock()
+    mock_client.request = AsyncMock(return_value=mock_response)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("httpx.AsyncClient", return_value=mock_client):
+        result = await WebClient(url="http://example.com", reason="r")
+    assert "Hello from server" in result
+
+
+async def test_web_client_http_error_returns_status():
+    from unittest.mock import AsyncMock, MagicMock, patch
+    from nori.tools.web_client import WebClient
+
+    mock_response = MagicMock()
+    mock_response.status_code = 404
+    mock_response.text = "Not Found"
+
+    mock_client = AsyncMock()
+    mock_client.request = AsyncMock(return_value=mock_response)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("httpx.AsyncClient", return_value=mock_client):
+        result = await WebClient(url="http://example.com/missing", reason="r")
+    assert "404" in result
+
+
+async def test_web_client_method_passed_through():
+    from unittest.mock import AsyncMock, MagicMock, patch
+    from nori.tools.web_client import WebClient
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.text = "ok"
+
+    mock_client = AsyncMock()
+    mock_client.request = AsyncMock(return_value=mock_response)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("httpx.AsyncClient", return_value=mock_client):
+        await WebClient(url="http://example.com", method="POST", body="data", reason="r")
+    call_kwargs = mock_client.request.call_args
+    assert call_kwargs.args[0] == "POST"

@@ -29,10 +29,12 @@ class Agent:
         max_turns: int | None = 10,
         allow: list[str] = None,
         deny: list[str] = None,
+        description: str = "",
     ):
         self.name = name
         self.model = model
         self.system_prompt = system_prompt
+        self.description = description
         self._context_files = context_files or []
         self._api_key = api_key
         self._base_url = base_url
@@ -59,6 +61,44 @@ class Agent:
         if self.__client is None:
             self.__client = AsyncOpenAI(api_key=self._api_key, base_url=self._base_url)
         return self.__client
+
+    # ── Tool interface (Agent as a tool) ─────────────────────────────────────
+
+    @property
+    def schema(self) -> dict:
+        desc = self.description or self.system_prompt or f"Run the {self.name} agent."
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": desc,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "task": {"type": "string"},
+                        "reason": {"type": "string", "description": "Your reason for calling this agent."},
+                    },
+                    "required": ["task", "reason"],
+                },
+            },
+        }
+
+    @property
+    def summarize_output(self) -> bool:
+        return True
+
+    async def __call__(self, task: str, reason: str = "") -> str:
+        sub = Agent(
+            name=self.name,
+            model=self.model,
+            system_prompt=self.system_prompt,
+            api_key=self._api_key,
+            base_url=self._base_url,
+            tools=list(self._tools.values()),
+            max_turns=self._max_turns,
+            description=self.description,
+        )
+        return await sub.run(task)
 
     def _context_fill(self) -> float:
         total = sum(len(str(m.get("content", ""))) for m in self._history)

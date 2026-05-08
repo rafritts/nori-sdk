@@ -32,3 +32,29 @@ async def test_bash_reason_not_in_command():
 async def test_bash_schema_has_reason_required():
     from nori.tools.bash import Bash
     assert "reason" in Bash.schema["function"]["parameters"]["required"]
+
+
+# ── FileEdit ──────────────────────────────────────────────────────────────────
+
+async def test_file_edit_replaces_content(tmp_path):
+    from nori.tools.file_edit import FileEdit
+    f = tmp_path / "test.txt"
+    f.write_text("hello world")
+    await FileEdit(path=str(f), old_content="world", new_content="nori", reason="r")
+    assert f.read_text() == "hello nori"
+
+
+async def test_file_edit_missing_old_content_raises(tmp_path):
+    from nori.tools.file_edit import FileEdit
+    f = tmp_path / "test.txt"
+    f.write_text("hello world")
+    with pytest.raises(ValueError):
+        await FileEdit(path=str(f), old_content="missing", new_content="x", reason="r")
+
+
+async def test_file_edit_reason_not_written_to_file(tmp_path):
+    from nori.tools.file_edit import FileEdit
+    f = tmp_path / "test.txt"
+    f.write_text("original content")
+    await FileEdit(path=str(f), old_content="original", new_content="updated", reason="secret reason")
+    assert "secret reason" not in f.read_text()

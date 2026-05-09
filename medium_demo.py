@@ -1,6 +1,7 @@
 import asyncio
 
 from nori import Agent
+from nori.logging import configure_file_logging
 from nori.tools.bash import Bash
 
 
@@ -32,6 +33,7 @@ def plant_junk():
 
 async def main():
     plant_junk()
+    configure_file_logging("medium_demo.log")
 
     agent = Agent(
         name="MediumDemoAgent",

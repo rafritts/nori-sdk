@@ -1,6 +1,7 @@
 import asyncio
 
 from nori import Agent
+from nori.logging import configure_file_logging
 from nori.tools.bash import Bash
 
 
@@ -36,6 +37,8 @@ async def main():
     agent.narration = True
     agent.summarize_tool_output = False
     agent.on_tool_result = lambda name, result: print(f"  └─ {result.strip()}\n")
+
+    configure_file_logging("hard_demo.log")
 
     print("=" * 60)
     print("Nori hard demo — write, test, verify, and self-correct")

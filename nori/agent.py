@@ -242,7 +242,7 @@ class Agent:
         except Exception as exc:
             logger.error("tool_error name=%s error=%s", tc.function.name, exc)
             raise
-        content = str(result)
+        content = str(result) or "[EMPTY]"
         if self.summarize_tool_output and getattr(fn, "summarize_output", True):
             content = await summarize(content, reason, self._client, self.model)
         logger.debug("tool_result name=%s result=%s", tc.function.name, content)

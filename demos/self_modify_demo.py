@@ -15,6 +15,7 @@ import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspa
 import asyncio
 
 from nori import Agent, Model, SelfModify
+from nori.audit import AuditLogger
 from nori.tool import tool
 
 DIVIDER = "=" * 60
@@ -28,7 +29,7 @@ def section(title: str) -> None:
 
 # ── Scenario 1: Custodian — update system prompt ──────────────────────────────
 
-async def scenario_custodian():
+async def scenario_custodian(auditor: AuditLogger):
     section("SCENARIO 1 — self_custodian: agent updates its own system prompt")
 
     agent = Agent(
@@ -38,6 +39,7 @@ async def scenario_custodian():
         self_modify=SelfModify.CUSTODIAN,
     )
     agent.narration = True
+    agent.auditor = auditor
 
     print(f"System prompt before: {agent.system_prompt!r}")
 
@@ -58,7 +60,7 @@ def celsius_to_fahrenheit(celsius: float) -> str:
     return f"{celsius * 9/5 + 32:.1f}°F"
 
 
-async def scenario_modify():
+async def scenario_modify(auditor: AuditLogger):
     section("SCENARIO 2 — self_modify: agent removes a tool mid-run")
 
     agent = Agent(
@@ -72,6 +74,7 @@ async def scenario_modify():
         self_modify=SelfModify.MODIFY,
     )
     agent.narration = True
+    agent.auditor = auditor
 
     print(f"Tools before: {list(agent._tools.keys())}")
 
@@ -86,7 +89,7 @@ async def scenario_modify():
 
 # ── Scenario 3: Mutation — switch model mid-run ───────────────────────────────
 
-async def scenario_mutation():
+async def scenario_mutation(auditor: AuditLogger):
     section("SCENARIO 3 — self_mutation: agent switches to a lighter model mid-run")
 
     agent = Agent(
@@ -99,6 +102,7 @@ async def scenario_mutation():
         self_modify=SelfModify.MUTATION,
     )
     agent.narration = True
+    agent.auditor = auditor
 
     print(f"Model before: {agent.model!r}")
 
@@ -113,9 +117,11 @@ async def scenario_mutation():
 
 async def main():
     print("Nori self-modification demo")
-    await scenario_custodian()
-    await scenario_modify()
-    await scenario_mutation()
+    auditor = AuditLogger("logs/self_modify_demo.audit.log")
+    await scenario_custodian(auditor)
+    await scenario_modify(auditor)
+    await scenario_mutation(auditor)
+    auditor.close()
     print(f"\n{DIVIDER}\nDone.\n{DIVIDER}")
 
 

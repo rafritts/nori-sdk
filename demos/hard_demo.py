@@ -17,7 +17,8 @@ import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspa
 import asyncio
 import textwrap
 
-from nori import Agent, Model
+from nori import Agent, Model, ContextWindow, BaseURL
+from nori.audit import AuditLogger
 from nori.tools.bash import Bash
 from nori.tools.file_edit import FileEdit
 from nori.tools.file_search import FileSearch
@@ -126,12 +127,13 @@ async def main() -> None:
 
     agent = Agent(
         name="BugHunter",
-        model=Model(id="grok-4.3"),
+        model=Model(id="gemma4:31b", base_url=BaseURL.OLLAMA,  context_window=ContextWindow.K24, api_key="ollama"),
         system_prompt=SYSTEM_PROMPT,
         tools=[Bash, FileEdit, FileSearch],
         max_turns=25,
     )
     agent.narration = True
+    agent.auditor = AuditLogger("logs/hard_demo.audit.log")
 
     print("=" * 60)
     print("Nori hard demo — broken repo recovery")
@@ -143,6 +145,7 @@ async def main() -> None:
         print(f"\nAgent: {result}")
     finally:
         cleanup()
+        agent.auditor.close()
 
     print(f"\nTurns: {agent.turn_count}  |  Cost: ${agent.cost:.4f}")
 

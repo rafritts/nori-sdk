@@ -13,6 +13,7 @@ import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspa
 import asyncio
 
 from nori import Agent, Checkpoint, CheckpointScrutiny, Model
+from nori.audit import AuditLogger
 from nori.exceptions import AntiSpinTerminated
 from nori.tool import tool
 
@@ -44,7 +45,7 @@ def summarize_records(records: str) -> str:
     return f"Summary complete. Input: {records[:80]}"
 
 
-async def scenario_healthy():
+async def scenario_healthy(auditor: AuditLogger):
     section("SCENARIO 1 — Healthy agent (checkpoint passes)")
 
     agent = Agent(
@@ -55,6 +56,7 @@ async def scenario_healthy():
         checkpoint=Checkpoint(every=3, scrutiny=CheckpointScrutiny.MODERATE),
     )
     agent.narration = True
+    agent.auditor = auditor
 
     result = await agent.run("Fetch records A1, B2, and C3, then summarize them.")
     print(f"\nAgent: {result}")
@@ -76,7 +78,7 @@ def investigate(target: str) -> str:
     )
 
 
-async def scenario_spin():
+async def scenario_spin(auditor: AuditLogger):
     section("SCENARIO 2 — Spinning agent (AntiSpinTerminated raised)")
 
     agent = Agent(
@@ -91,6 +93,7 @@ async def scenario_spin():
         max_turns=20,
     )
     agent.narration = True
+    agent.auditor = auditor
 
     try:
         result = await agent.run(
@@ -104,8 +107,10 @@ async def scenario_spin():
 
 async def main():
     print("Nori anti-spin demo")
-    await scenario_healthy()
-    await scenario_spin()
+    auditor = AuditLogger("logs/anti_spin_demo.audit.log")
+    await scenario_healthy(auditor)
+    await scenario_spin(auditor)
+    auditor.close()
     print(f"\n{DIVIDER}\nDone.\n{DIVIDER}")
 
 

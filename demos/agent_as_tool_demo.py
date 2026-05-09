@@ -14,6 +14,7 @@ import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspa
 import asyncio
 
 from nori import Agent, Model
+from nori.audit import AuditLogger
 from nori.tool import tool
 from nori.tools.bash import Bash
 
@@ -88,11 +89,16 @@ async def main():
         tools=[researcher, writer],
     )
     orchestrator.narration = True
+    auditor = AuditLogger("logs/agent_as_tool_demo.audit.log")
+    orchestrator.auditor = auditor
+    researcher.auditor = auditor
+    writer.auditor = auditor
 
     result = await orchestrator.run(
         "Write a short comparison of Python, Rust, and Go. "
         "Research each language, then have the Writer produce a formatted markdown doc."
     )
+    auditor.close()
 
     print(f"\n{DIVIDER}")
     print("Final output:")

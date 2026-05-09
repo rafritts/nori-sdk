@@ -18,6 +18,7 @@ import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspa
 import asyncio
 
 from nori import Agent, Model
+from nori.audit import AuditLogger
 from nori.tool import tool
 
 DIVIDER = "=" * 60
@@ -44,7 +45,7 @@ def get_chapter(number: int) -> str:
 
 # ── Scenario 1: Running context summary ──────────────────────────────────────
 
-async def scenario_running_summary():
+async def scenario_running_summary(auditor: AuditLogger):
     section("SCENARIO 1 — Running context summary across multiple turns")
 
     agent = Agent(
@@ -55,6 +56,7 @@ async def scenario_running_summary():
     )
     agent.running_context_summary = True
     agent.narration = True
+    agent.auditor = auditor
 
     print("Turn 1:")
     r1 = await agent.run("Fetch chapter 1 and tell me what it's about.")
@@ -75,7 +77,7 @@ async def scenario_running_summary():
 
 # ── Scenario 2: Autocompaction ────────────────────────────────────────────────
 
-async def scenario_autocompaction():
+async def scenario_autocompaction(auditor: AuditLogger):
     section("SCENARIO 2 — Autocompaction triggered by context fill")
 
     agent = Agent(
@@ -86,6 +88,7 @@ async def scenario_autocompaction():
         max_turns=20,
     )
     agent.narration = True
+    agent.auditor = auditor
     # Set a very small context window to force compaction quickly
     agent.max_context_chars = 2_000
 
@@ -103,8 +106,10 @@ async def scenario_autocompaction():
 
 async def main():
     print("Nori context management demo")
-    await scenario_running_summary()
-    await scenario_autocompaction()
+    auditor = AuditLogger("logs/context_demo.audit.log")
+    await scenario_running_summary(auditor)
+    await scenario_autocompaction(auditor)
+    auditor.close()
     print(f"\n{DIVIDER}\nDone.\n{DIVIDER}")
 
 

@@ -19,6 +19,7 @@ import asyncio
 import json
 
 from nori import Agent, Model
+from nori.audit import AuditLogger
 from nori.tool import tool
 
 DIVIDER = "=" * 60
@@ -102,11 +103,13 @@ async def run_agent():
         tools=[get_tokyo_weather, get_raw_metrics, fetch_price],
     )
     agent.narration = True
+    agent.auditor = AuditLogger("logs/tool_decorator_demo.audit.log")
 
     result = await agent.run(
         "What's the weather in Tokyo? Also grab metrics for host 'prod-1' "
         "and get me the price of AAPL and MSFT."
     )
+    agent.auditor.close()
     print(f"Agent: {result}")
     print(f"\nTurns: {agent.turn_count}  |  Cost: ${agent.cost:.4f}")
 

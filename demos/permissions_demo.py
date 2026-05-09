@@ -14,6 +14,7 @@ import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspa
 import asyncio
 
 from nori import Agent, Model, Permissions
+from nori.audit import AuditLogger
 from nori.exceptions import PermissionError
 from nori.tool import tool
 
@@ -52,7 +53,7 @@ def section(title: str) -> None:
     print(DIVIDER)
 
 
-async def scenario_no_restrictions():
+async def scenario_no_restrictions(auditor: AuditLogger):
     section("SCENARIO 1 — No restrictions (all tools available)")
     agent = Agent(
         name="UnrestrictedAgent",
@@ -61,6 +62,7 @@ async def scenario_no_restrictions():
         tools=ALL_TOOLS,
     )
     agent.narration = True
+    agent.auditor = auditor
     agent.on_tool_result = lambda name, result, call_id, trace_id: print(f"  [{name}] → {result.strip()}")
 
     result = await agent.run(
@@ -70,7 +72,7 @@ async def scenario_no_restrictions():
     print(f"Tool calls: {[tc['name'] for tc in agent.tool_calls]}")
 
 
-async def scenario_allow_list():
+async def scenario_allow_list(auditor: AuditLogger):
     section("SCENARIO 2 — Allow list: only 'read_file' permitted")
     agent = Agent(
         name="ReadOnlyAgent",
@@ -80,6 +82,7 @@ async def scenario_allow_list():
         permissions=Permissions(allow=["read_file"]),
     )
     agent.narration = True
+    agent.auditor = auditor
     agent.on_tool_result = lambda name, result, call_id, trace_id: print(f"  [{name}] → {result.strip()}")
 
     print("Attempting: write then read then delete...")
@@ -93,7 +96,7 @@ async def scenario_allow_list():
     print(f"Tool calls attempted: {[tc['name'] for tc in agent.tool_calls]}")
 
 
-async def scenario_deny_list():
+async def scenario_deny_list(auditor: AuditLogger):
     section("SCENARIO 3 — Deny list: 'delete_file' blocked")
     agent = Agent(
         name="NoDeleteAgent",
@@ -103,6 +106,7 @@ async def scenario_deny_list():
         permissions=Permissions(deny=["delete_file"]),
     )
     agent.narration = True
+    agent.auditor = auditor
     agent.on_tool_result = lambda name, result, call_id, trace_id: print(f"  [{name}] → {result.strip()}")
 
     print("Attempting: write, read, then delete...")
@@ -118,10 +122,12 @@ async def scenario_deny_list():
 
 async def main():
     print("Nori permissions demo")
+    auditor = AuditLogger("logs/permissions_demo.audit.log")
 
-    await scenario_no_restrictions()
-    await scenario_allow_list()
-    await scenario_deny_list()
+    await scenario_no_restrictions(auditor)
+    await scenario_allow_list(auditor)
+    await scenario_deny_list(auditor)
+    auditor.close()
 
     print(f"\n{DIVIDER}")
     print("Done.")

@@ -15,6 +15,7 @@ import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspa
 import asyncio
 
 from nori import Agent, Model
+from nori.audit import AuditLogger
 from nori.tool import tool
 
 DIVIDER = "=" * 60
@@ -50,7 +51,7 @@ def section(title: str) -> None:
     print(DIVIDER)
 
 
-async def scenario_default_narration():
+async def scenario_default_narration(auditor: AuditLogger):
     section("SCENARIO 1 — Default narration (stdout)")
 
     agent = Agent(
@@ -60,12 +61,13 @@ async def scenario_default_narration():
         tools=[check_service, get_service_logs],
     )
     agent.narration = True
+    agent.auditor = auditor
 
     result = await agent.run(TASK)
     print(f"\nAgent: {result}")
 
 
-async def scenario_custom_callback():
+async def scenario_custom_callback(auditor: AuditLogger):
     section("SCENARIO 2 — Custom on_narration callback")
 
     events = []
@@ -82,13 +84,14 @@ async def scenario_custom_callback():
     )
     agent.narration = True
     agent.on_narration = capture
+    agent.auditor = auditor
 
     result = await agent.run(TASK)
     print(f"\nAgent: {result}")
     print(f"\nTotal narration events captured: {len(events)}")
 
 
-async def scenario_narrator_prefix():
+async def scenario_narrator_prefix(auditor: AuditLogger):
     section("SCENARIO 3 — narrator_prefix for multi-agent disambiguation")
 
     infra = Agent(
@@ -99,6 +102,7 @@ async def scenario_narrator_prefix():
     )
     infra.narration = True
     infra.narrator_prefix = "[infra] "
+    infra.auditor = auditor
 
     app = Agent(
         name="AppAgent",
@@ -108,6 +112,7 @@ async def scenario_narrator_prefix():
     )
     app.narration = True
     app.narrator_prefix = "[app]   "
+    app.auditor = auditor
 
     print("Running both agents concurrently...\n")
     infra_result, app_result = await asyncio.gather(
@@ -120,9 +125,11 @@ async def scenario_narrator_prefix():
 
 async def main():
     print("Nori narration demo")
-    await scenario_default_narration()
-    await scenario_custom_callback()
-    await scenario_narrator_prefix()
+    auditor = AuditLogger("logs/narration_demo.audit.log")
+    await scenario_default_narration(auditor)
+    await scenario_custom_callback(auditor)
+    await scenario_narrator_prefix(auditor)
+    auditor.close()
     print(f"\n{DIVIDER}\nDone.\n{DIVIDER}")
 
 

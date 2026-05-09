@@ -17,7 +17,7 @@ import config
 import asyncio
 import textwrap
 
-from nori import Agent, Model, ContextWindow, Provider
+from nori import Agent
 from nori.audit import AuditLogger
 from nori.tools.bash import Bash
 from nori.tools.file_edit import FileEdit
@@ -127,7 +127,6 @@ async def main() -> None:
 
     agent = Agent(
         name="BugHunter",
-        model=Model(id="gemma4:31b", provider=Provider.OLLAMA, context_window=ContextWindow.K24),
         system_prompt=SYSTEM_PROMPT,
         tools=[Bash, FileEdit, FileSearch],
         max_turns=25,

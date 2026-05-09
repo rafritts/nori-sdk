@@ -13,14 +13,12 @@ import config
 import asyncio
 from io import BytesIO
 
-from nori import Agent, Image, Model, Provider, ResizeMode
+from nori import Agent, Image, ResizeMode
 from nori.audit import AuditLogger
 from nori.tools.view_image import make_view_image
 
 
 IMAGE_PATH = "/tmp/nori_vision_demo.png"
-
-VISION_MODEL = Model(id="gemma4:31b", provider=Provider.OLLAMA)
 
 SYSTEM_PROMPT = """\
 You are a helpful assistant. When asked about an image, use the ViewImage tool to inspect it.
@@ -48,11 +46,10 @@ def create_test_image() -> None:
 async def main() -> None:
     create_test_image()
 
-    view_image = make_view_image(VISION_MODEL)
+    view_image = make_view_image(config.MAIN_MODEL)
 
     agent = Agent(
         name="VisionAgent",
-        model=VISION_MODEL,
         system_prompt=SYSTEM_PROMPT,
         tools=[view_image],
         max_turns=10,

@@ -1,7 +1,7 @@
 import config
 import asyncio
 
-from nori import Agent, ContextWindow, Model, Provider
+from nori import Agent
 from nori.audit import AuditLogger
 from nori.tools.bash import Bash
 
@@ -25,12 +25,9 @@ Complete the following steps in order:
 Do each step explicitly and show all output.
 """
 
-OLLAMA_MODEL = Model(id="grok-4-1-fast-reasoning", provider=Provider.XAI, context_window=ContextWindow.M1)
-
 async def main():
     agent = Agent(
         name="DemoAgent",
-        model=OLLAMA_MODEL,
         system_prompt=SYSTEM_PROMPT,
         tools=[Bash],
         max_turns=20,

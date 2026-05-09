@@ -14,3 +14,7 @@ wheels/
 .pytest_cache/
 htmlcov/
 .env
+
+# Logs
+*.log
+logs/

@@ -13,8 +13,8 @@ from nori import Agent
 from nori.audit import AuditLogger
 from nori.tool import tool
 
-LOG_FILE = "observability_demo.log"
-AUDIT_FILE = "observability_demo.audit.log"
+LOG_FILE = "logs/observability_demo.log"
+AUDIT_FILE = "logs/observability_demo.audit.log"
 
 
 # ── Standard Python logging setup ────────────────────────────────────────────

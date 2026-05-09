@@ -170,3 +170,108 @@ async def test_error_logged_on_tool_failure(caplog):
                 await agent.run("go")
 
     assert any("tool_error" in r.message for r in caplog.records)
+
+
+async def test_narration_summary_fires_after_run():
+    @tool
+    def sample_tool(x: str) -> str:
+        """Sample."""
+        return "ok"
+
+    with patch("nori.agent.AsyncOpenAI") as MockOpenAI:
+        mock_client = MagicMock()
+        usage = MagicMock()
+        usage.prompt_tokens = 10
+        usage.completion_tokens = 5
+        mock_client.chat.completions.create = AsyncMock(side_effect=[
+            MagicMock(choices=[MagicMock(message=make_tool_call_message(
+                "sample_tool", {"x": "v", "reason": "r"}
+            ))], usage=usage),
+            MagicMock(choices=[MagicMock(message=make_text_message())], usage=usage),
+        ])
+        MockOpenAI.return_value = mock_client
+
+        fired = []
+        agent = Agent(name="T", model="grok-4.3", tools=[sample_tool])
+        agent.summarize_tool_output = False
+        agent.narration = True
+        agent.on_narration = lambda s: fired.append(s)
+        await agent.run("go")
+
+    summary = next((s for s in fired if "turns" in s and "tokens" in s), None)
+    assert summary is not None
+    assert "T" in summary
+
+
+async def test_narration_summary_opt_out():
+    with patch("nori.agent.AsyncOpenAI") as MockOpenAI:
+        mock_client = MagicMock()
+        usage = MagicMock()
+        usage.prompt_tokens = 10
+        usage.completion_tokens = 5
+        mock_client.chat.completions.create = AsyncMock(
+            return_value=MagicMock(choices=[MagicMock(message=make_text_message())], usage=usage)
+        )
+        MockOpenAI.return_value = mock_client
+
+        fired = []
+        agent = Agent(name="T", model="grok-4.3")
+        agent.narration = True
+        agent.narration_summary = False
+        agent.on_narration = lambda s: fired.append(s)
+        await agent.run("go")
+
+    assert not any("turns" in s for s in fired)
+
+
+async def test_audit_agent_end_includes_billing(tmp_path):
+    from nori.audit import AuditLogger
+
+    with patch("nori.agent.AsyncOpenAI") as MockOpenAI:
+        mock_client = MagicMock()
+        usage = MagicMock()
+        usage.prompt_tokens = 10
+        usage.completion_tokens = 5
+        mock_client.chat.completions.create = AsyncMock(
+            return_value=MagicMock(choices=[MagicMock(message=make_text_message())], usage=usage)
+        )
+        MockOpenAI.return_value = mock_client
+
+        log_file = tmp_path / "test.audit.log"
+        agent = Agent(name="T", model="grok-4.3")
+        agent.auditor = AuditLogger(str(log_file))
+        await agent.run("go")
+        agent.auditor.close()
+
+    events = [json.loads(l) for l in log_file.read_text().splitlines()]
+    end = next(e for e in events if e["event"] == "agent_end")
+    assert "prompt_tokens" in end
+    assert "completion_tokens" in end
+    assert "cost" in end
+
+
+async def test_audit_agent_end_billing_opt_out(tmp_path):
+    from nori.audit import AuditLogger
+
+    with patch("nori.agent.AsyncOpenAI") as MockOpenAI:
+        mock_client = MagicMock()
+        usage = MagicMock()
+        usage.prompt_tokens = 10
+        usage.completion_tokens = 5
+        mock_client.chat.completions.create = AsyncMock(
+            return_value=MagicMock(choices=[MagicMock(message=make_text_message())], usage=usage)
+        )
+        MockOpenAI.return_value = mock_client
+
+        log_file = tmp_path / "test.audit.log"
+        agent = Agent(name="T", model="grok-4.3")
+        agent.auditor = AuditLogger(str(log_file), billing=False)
+        await agent.run("go")
+        agent.auditor.close()
+
+    events = [json.loads(l) for l in log_file.read_text().splitlines()]
+    end = next(e for e in events if e["event"] == "agent_end")
+    assert "prompt_tokens" not in end
+    assert "completion_tokens" not in end
+    assert "cost" not in end
+    assert "turns" in end

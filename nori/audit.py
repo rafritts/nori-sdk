@@ -15,8 +15,9 @@ class AuditLogger:
         agent.auditor = AuditLogger("myagent.audit.log")
     """
 
-    def __init__(self, path: str) -> None:
+    def __init__(self, path: str, billing: bool = True) -> None:
         self._file = open(path, "a", buffering=1)
+        self.billing = billing
 
     def _write(self, event: str, **fields) -> None:
         record = {
@@ -33,12 +34,18 @@ class AuditLogger:
             agent=agent, prompt=prompt,
         )
 
-    def agent_end(self, agent: str, result: str, turns: int, cost: float, *, trace_id: str, span_id: str, parent_span_id: str | None) -> None:
-        self._write(
-            "agent_end",
-            trace_id=trace_id, span_id=span_id, parent_span_id=parent_span_id,
-            agent=agent, result=result, turns=turns, cost=cost,
-        )
+    def agent_end(self, agent: str, result: str, turns: int, cost: float,
+                  prompt_tokens: int, completion_tokens: int,
+                  *, trace_id: str, span_id: str, parent_span_id: str | None) -> None:
+        fields: dict = {
+            "trace_id": trace_id, "span_id": span_id, "parent_span_id": parent_span_id,
+            "agent": agent, "result": result, "turns": turns,
+        }
+        if self.billing:
+            fields["prompt_tokens"] = prompt_tokens
+            fields["completion_tokens"] = completion_tokens
+            fields["cost"] = cost
+        self._write("agent_end", **fields)
 
     def tool_call(self, agent: str, name: str, args: dict, *, trace_id: str, span_id: str, parent_span_id: str | None, call_id: str) -> None:
         self._write(

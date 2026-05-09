@@ -82,6 +82,7 @@ class Agent:
         self.auditor = None
         self.narration_call_id: bool = True
         self.narration_trace_id: bool = False
+        self.narration_summary: bool = True
         self._trace_id: str | None = None
         self._span_id: str | None = None
         self.parent_span_id: str | None = None
@@ -213,6 +214,17 @@ class Agent:
         narration_logger.debug(msg)
         if self.narration:
             self.on_narration(msg)
+
+    def _narrate_summary(self) -> None:
+        if not self.narration or not self.narration_summary:
+            return
+        total = self._prompt_tokens + self._completion_tokens
+        msg = (
+            f"{self.narrator_prefix}{self.name}: "
+            f"{self._turn_count} turns | {total:,} tokens | ${self.cost:.4f}"
+        )
+        narration_logger.debug(msg)
+        self.on_narration(msg)
 
     def _narrate_result(self, tool_name: str, result: str, call_id: str | None, is_parallel: bool) -> None:
         if not self.narration or not is_parallel or not self.narration_call_id or not call_id:
@@ -420,9 +432,11 @@ class Agent:
                     )
                     self._history = inject_summary(self._history, self._running_summary)
                 result = message.content or ""
+                self._narrate_summary()
                 if self.auditor:
                     self.auditor.agent_end(
                         self.name, result, self._turn_count, self.cost,
+                        self._prompt_tokens, self._completion_tokens,
                         trace_id=self._trace_id, span_id=self._span_id,
                         parent_span_id=self.parent_span_id,
                     )

@@ -1,5 +1,3 @@
-import sys, os
-
 import asyncio
 
 from nori import Agent, ContextWindow, Model, Provider

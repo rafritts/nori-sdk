@@ -21,6 +21,9 @@ dev = [
     "pytest-cov>=7.1.0",
 ]
 
+[tool.setuptools.packages.find]
+include = ["nori*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--cov=nori --cov-report=term-missing"

@@ -8,7 +8,6 @@ Ollama: pull a vision-capable model first, e.g.:
     ollama pull llava
     ollama pull gemma4:31b  # also supports vision
 """
-import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import asyncio
 from io import BytesIO

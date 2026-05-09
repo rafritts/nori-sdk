@@ -23,7 +23,6 @@ Environment variables (defaults match docker-compose.yml):
   RETAIL_DB_DSN     postgresql://nori:nori@localhost:5432/nori_retail
   RETAIL_REDIS_URL  redis://localhost:6379
 """
-import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import asyncio
 import json

@@ -7,7 +7,6 @@ Demonstrates the difference between standard Python logging and the nori audit s
 Parallel tool calls automatically get call_id correlation in narration and full
 trace_id/span_id/parent_span_id in the audit stream.
 """
-import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import asyncio
 import json

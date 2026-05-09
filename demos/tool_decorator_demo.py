@@ -13,7 +13,6 @@ Shows:
   4. .bind() — lock parameters to fixed values, creating a restricted variant
   5. All of the above wired into a real agent run
 """
-import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import asyncio
 import json

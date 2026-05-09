@@ -19,7 +19,6 @@ Bugs planted in the PR diff:
   paginate()            — off-by-one (1-indexed page not accounted for)
   delete_user()         — rowcount >= 0 always True (catches zero-row deletes)
 """
-import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import asyncio
 import textwrap

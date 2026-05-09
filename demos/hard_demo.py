@@ -12,7 +12,6 @@ Bugs planted:
 
 Constraint: the agent must not modify test files.
 """
-import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import asyncio
 import textwrap

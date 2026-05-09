@@ -10,7 +10,6 @@ Agents can be granted increasing levels of self-modification capability:
 Each tier is additive. The agent uses these as regular tools — the model
 decides when and why to invoke them.
 """
-import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import asyncio
 

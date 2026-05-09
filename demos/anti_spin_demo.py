@@ -8,6 +8,8 @@ Shows:
   1. A healthy agent completing a multi-step task (no spin detected)
   2. An agent that gets stuck in a loop — anti-spin fires and halts it
 """
+import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import asyncio
 
 from nori import Agent

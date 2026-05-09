@@ -4,6 +4,8 @@ Demonstrates the difference between standard Python logging and the nori audit s
 - nori.agent / nori.narration: configured like any Python logger — handler, formatter, done.
 - nori.audit: structured JSON-lines event stream, opt-in via agent.auditor.
 """
+import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import asyncio
 import json
 import logging

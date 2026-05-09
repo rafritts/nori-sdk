@@ -13,6 +13,8 @@ Shows:
   1. Running context summary across a multi-turn conversation
   2. Forced autocompaction by setting a very small max_context_chars
 """
+import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import asyncio
 
 from nori import Agent

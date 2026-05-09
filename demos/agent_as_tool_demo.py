@@ -9,6 +9,8 @@ Shows:
   1. Two specialist agents (research + writer) wired into an orchestrator
   2. Orchestrator delegates naturally — the model decides when to call each
 """
+import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import asyncio
 
 from nori import Agent

@@ -19,6 +19,8 @@ import textwrap
 
 from nori import Agent
 from nori.tools.bash import Bash
+from nori.tools.file_edit import FileEdit
+from nori.tools.file_search import FileSearch
 
 
 BROKEN_FILES = {
@@ -125,7 +127,7 @@ async def main() -> None:
     agent = Agent(
         name="BugHunter",
         system_prompt=SYSTEM_PROMPT,
-        tools=[Bash],
+        tools=[Bash, FileEdit, FileSearch],
         max_turns=25,
     )
     agent.summarize_tool_output = False

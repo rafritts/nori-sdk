@@ -36,7 +36,7 @@ async def main():
     plant_junk()
 
     agent = Agent(
-        name="MediumDemoAgent",
+        name="Medium1DemoAgent",
         system_prompt=SYSTEM_PROMPT,
         tools=[Bash],
         max_turns=20,

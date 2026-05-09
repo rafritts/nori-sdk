@@ -2,7 +2,7 @@ import sys, os
 
 import asyncio
 
-from nori import Agent, ContextWindow, Model, BaseURL
+from nori import Agent, ContextWindow, Model, Provider
 from nori.audit import AuditLogger
 from nori.tools.bash import Bash
 
@@ -30,7 +30,7 @@ Do each step explicitly and show all output.
 async def main():
     agent = Agent(
         name="DemoAgent",
-        model=Model(id="gemma4:31b", base_url=BaseURL.OLLAMA,  context_window=ContextWindow.K24, api_key="ollama"),
+        model=Model(id="gemma4:31b", base_url=Provider.OLLAMA.base_url, context_window=ContextWindow.K24),
         system_prompt=SYSTEM_PROMPT,
         tools=[Bash],
         max_turns=20,

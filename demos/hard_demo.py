@@ -17,7 +17,7 @@ import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspa
 import asyncio
 import textwrap
 
-from nori import Agent, Model, ContextWindow, BaseURL
+from nori import Agent, Model, ContextWindow, Provider
 from nori.audit import AuditLogger
 from nori.tools.bash import Bash
 from nori.tools.file_edit import FileEdit
@@ -127,7 +127,7 @@ async def main() -> None:
 
     agent = Agent(
         name="BugHunter",
-        model=Model(id="gemma4:31b", base_url=BaseURL.OLLAMA,  context_window=ContextWindow.K24, api_key="ollama"),
+        model=Model(id="gemma4:31b", base_url=Provider.OLLAMA.base_url, context_window=ContextWindow.K24),
         system_prompt=SYSTEM_PROMPT,
         tools=[Bash, FileEdit, FileSearch],
         max_turns=25,

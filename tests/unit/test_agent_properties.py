@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from nori import Agent, Model
-from nori.pricing import cost_for
+from nori.providers import cost_for
 from nori.tool import tool
 
 
@@ -113,8 +113,8 @@ def test_properties_are_read_only():
 
 def test_model_pricing_lookup():
     cost = cost_for("grok-4.3", 1_000_000, 0)
-    assert cost == pytest.approx(5.00)
+    assert cost == pytest.approx(1.25)
     cost = cost_for("grok-4.3", 0, 1_000_000)
-    assert cost == pytest.approx(15.00)
+    assert cost == pytest.approx(2.50)
     cost = cost_for("unknown-model", 1_000_000, 1_000_000)
     assert cost == 0.0

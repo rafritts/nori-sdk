@@ -14,7 +14,7 @@ from nori.exceptions import AntiSpinTerminated, MaxTurnsExceeded
 from nori.mcp.server import MCPServer
 from nori.model import Model
 from nori.permissions import Permissions, PermissionGuard
-from nori.pricing import cost_for
+from nori.providers import cost_for
 from nori.summarizer import summarize
 
 logger = logging.getLogger("nori.agent")

@@ -24,7 +24,7 @@ Complete the following steps in order:
 Do each step explicitly and show all output.
 """
 
-OLLAMA_MODEL = Model(id="gemma4:31b", provider=Provider.OLLAMA, context_window=ContextWindow.K24)
+OLLAMA_MODEL = Model(id="grok-4-1-fast-reasoning", provider=Provider.XAI, context_window=ContextWindow.M1)
 
 async def main():
     agent = Agent(

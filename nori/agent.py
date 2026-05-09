@@ -78,6 +78,7 @@ class Agent:
         self._prompt_tokens: int = 0
         self._completion_tokens: int = 0
         self._tool_calls_log: list[dict] = []
+        self.auditor = None
 
     @property
     def _client(self) -> AsyncOpenAI:
@@ -237,15 +238,21 @@ class Agent:
         reason = args.get("reason", "")
         self._narrate(tc.function.name, reason)
         logger.debug("tool_call name=%s args=%s", tc.function.name, args)
+        if self.auditor:
+            self.auditor.tool_call(self.name, tc.function.name, args)
         try:
             result = await fn(**args)
         except Exception as exc:
             logger.error("tool_error name=%s error=%s", tc.function.name, exc)
+            if self.auditor:
+                self.auditor.tool_error(self.name, tc.function.name, str(exc))
             raise
         content = str(result) or "[EMPTY]"
         if self.summarize_tool_output and getattr(fn, "summarize_output", True):
             content = await summarize(content, reason, self._client, self.model)
         logger.debug("tool_result name=%s result=%s", tc.function.name, content)
+        if self.auditor:
+            self.auditor.tool_result(self.name, tc.function.name, content)
         self._tool_calls_log.append({"name": tc.function.name, "args": args, "result": content})
         self.on_tool_result(tc.function.name, content)
         return {"role": "tool", "tool_call_id": tc.id, "content": content}
@@ -301,6 +308,8 @@ class Agent:
 
     async def run(self, prompt: str) -> str:
         logger.debug("run agent=%s prompt=%r", self.name, prompt[:80])
+        if self.auditor:
+            self.auditor.agent_start(self.name, prompt)
         self._history.append({"role": "user", "content": prompt})
 
         while True:
@@ -346,7 +355,10 @@ class Agent:
                         self._history, self._running_summary, self._client, self.model
                     )
                     self._history = inject_summary(self._history, self._running_summary)
-                return message.content or ""
+                result = message.content or ""
+                if self.auditor:
+                    self.auditor.agent_end(self.name, result, self._turn_count, self.cost)
+                return result
 
             tool_results = await self._execute_tools(message.tool_calls)
             self._history.extend(tool_results)

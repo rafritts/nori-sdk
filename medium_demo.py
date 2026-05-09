@@ -1,7 +1,7 @@
 import asyncio
 
 from nori import Agent
-from nori.logging import configure_file_logging
+from nori.audit import AuditLogger
 from nori.tools.bash import Bash
 
 
@@ -33,7 +33,6 @@ def plant_junk():
 
 async def main():
     plant_junk()
-    configure_file_logging("medium_demo.log")
 
     agent = Agent(
         name="MediumDemoAgent",
@@ -41,6 +40,7 @@ async def main():
         tools=[Bash],
         max_turns=20,
     )
+    agent.auditor = AuditLogger("medium_demo.audit.log")
     agent.narration = True
     agent.summarize_tool_output = False
     agent.on_tool_result = lambda name, result: print(f"  └─ {result.strip()}\n")

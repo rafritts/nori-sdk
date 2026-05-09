@@ -102,7 +102,6 @@ async def run_agent():
     )
     agent.summarize_tool_output = False
     agent.narration = True
-    agent.on_tool_result = lambda name, result: print(f"  └─ {result}\n")
 
     result = await agent.run(
         "What's the weather in Tokyo? Also grab metrics for host 'prod-1' "

@@ -112,7 +112,7 @@ async def test_on_tool_result_callback_fires(caplog):
         received = []
         agent = Agent(name="T", model="grok-4.3", tools=[sample_tool])
         agent.summarize_tool_output = False
-        agent.on_tool_result = lambda name, result: received.append((name, result))
+        agent.on_tool_result = lambda name, result, call_id, trace_id: received.append((name, result))
         await agent.run("go")
 
     assert received == [("sample_tool", "callback result")]

@@ -86,7 +86,6 @@ async def main():
     )
     orchestrator.summarize_tool_output = False
     orchestrator.narration = True
-    orchestrator.on_tool_result = lambda name, result: print(f"  └─ {result.strip()}\n")
 
     result = await orchestrator.run(
         "Write a short comparison of Python, Rust, and Go. "

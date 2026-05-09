@@ -2,7 +2,10 @@
 Demonstrates the difference between standard Python logging and the nori audit stream.
 
 - nori.agent / nori.narration: configured like any Python logger — handler, formatter, done.
-- nori.audit: structured JSON-lines event stream, opt-in via agent.auditor.
+- nori.audit: structured JSON-lines event stream with full B3 tracing, opt-in via agent.auditor.
+
+Parallel tool calls automatically get call_id correlation in narration and full
+trace_id/span_id/parent_span_id in the audit stream.
 """
 import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -63,13 +66,15 @@ async def main():
         tools=[get_system_info, get_uptime, get_load],
     )
     agent.summarize_tool_output = False
+    agent.narration = True          # human-facing: auto call_id on parallel turns
     agent.auditor = AuditLogger(AUDIT_FILE)
 
     print("Running agent...\n")
     result = await agent.run(
         "What OS am I on, how long has this machine been up, and what's the current load?"
     )
-    print(f"Agent: {result}\n")
+    agent.auditor.close()
+    print(f"\nAgent: {result}\n")
 
     # ── Show both outputs side by side ────────────────────────────────────────
 
@@ -81,11 +86,14 @@ async def main():
 
     print("=" * 60)
     print(f"AUDIT STREAM  ({AUDIT_FILE})")
+    print("(Full B3 tracing: trace_id, span_id, parent_span_id, call_id)")
     print("=" * 60)
     with open(AUDIT_FILE) as f:
         for line in f:
             print(json.dumps(json.loads(line), indent=2))
             print()
+
+    print(f"trace_id for this run: {agent.trace_id}")
 
 
 asyncio.run(main())

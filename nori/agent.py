@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import uuid
 
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionMessage
@@ -79,6 +80,19 @@ class Agent:
         self._completion_tokens: int = 0
         self._tool_calls_log: list[dict] = []
         self.auditor = None
+        self.narration_call_id: bool = True
+        self.narration_trace_id: bool = False
+        self._trace_id: str | None = None
+        self._span_id: str | None = None
+        self.parent_span_id: str | None = None
+
+    @property
+    def trace_id(self) -> str | None:
+        return self._trace_id
+
+    @property
+    def span_id(self) -> str | None:
+        return self._span_id
 
     @property
     def _client(self) -> AsyncOpenAI:
@@ -164,7 +178,7 @@ class Agent:
             max_turns=self._max_turns,
             description=self.description,
         )
-        return await sub.run(task)
+        return await sub.run(task, _trace_id=self._trace_id, _parent_span_id=self._span_id)
 
     def _context_fill(self) -> float:
         total = sum(len(str(m.get("content", ""))) for m in self._history)
@@ -180,14 +194,37 @@ class Agent:
     def _default_narrator(self, text: str) -> None:
         print(text)
 
-    def _default_tool_result_handler(self, name: str, result: str) -> None:
+    def _default_tool_result_handler(self, name: str, result: str, call_id: str | None, trace_id: str | None) -> None:
         pass
 
-    def _narrate(self, tool_name: str, reason: str) -> None:
-        msg = f"{self.narrator_prefix}{tool_name}[{reason}]"
+    def _narrate(self, tool_name: str, reason: str, call_id: str | None = None, is_parallel: bool = False) -> None:
+        if is_parallel and self.narration_call_id and call_id:
+            name_part = f"{tool_name}-{call_id}"
+            suffix = f"[Started: {reason}]"
+        else:
+            name_part = tool_name
+            suffix = f"[{reason}]"
+
+        if self.narration_trace_id and self._trace_id:
+            msg = f"{self.narrator_prefix}{name_part}[{self._trace_id}]{suffix}"
+        else:
+            msg = f"{self.narrator_prefix}{name_part}{suffix}"
+
         narration_logger.debug(msg)
         if self.narration:
             self.on_narration(msg)
+
+    def _narrate_result(self, tool_name: str, result: str, call_id: str | None, is_parallel: bool) -> None:
+        if not self.narration or not is_parallel or not self.narration_call_id or not call_id:
+            return
+        flat = result.replace("\n", " | ")
+        name_part = f"{tool_name}-{call_id}"
+        if self.narration_trace_id and self._trace_id:
+            msg = f"{self.narrator_prefix}{name_part}[{self._trace_id}][Result: {flat}]"
+        else:
+            msg = f"{self.narrator_prefix}{name_part}[Result: {flat}]"
+        narration_logger.debug(msg)
+        self.on_narration(msg)
 
     def _tool_name(self, t) -> str:
         return t.schema["function"]["name"]
@@ -228,7 +265,7 @@ class Agent:
             ]
         return d
 
-    async def _invoke_tool(self, tc) -> dict:
+    async def _invoke_tool(self, tc, is_parallel: bool = False) -> dict:
         if tc.function.name == "Compact":
             await self._compact()
             return {"role": "tool", "tool_call_id": tc.id, "content": "History compacted."}
@@ -236,29 +273,45 @@ class Agent:
         fn = self._tools[tc.function.name]
         args = json.loads(tc.function.arguments)
         reason = args.get("reason", "")
-        self._narrate(tc.function.name, reason)
+        tool_span_id = uuid.uuid4().hex[:8]
+        tool_call_id = tool_span_id[:4]
+        self._narrate(tc.function.name, reason, tool_call_id, is_parallel)
         logger.debug("tool_call name=%s args=%s", tc.function.name, args)
         if self.auditor:
-            self.auditor.tool_call(self.name, tc.function.name, args)
+            self.auditor.tool_call(
+                self.name, tc.function.name, args,
+                trace_id=self._trace_id, span_id=tool_span_id,
+                parent_span_id=self._span_id, call_id=tool_call_id,
+            )
         try:
             result = await fn(**args)
         except Exception as exc:
             logger.error("tool_error name=%s error=%s", tc.function.name, exc)
             if self.auditor:
-                self.auditor.tool_error(self.name, tc.function.name, str(exc))
+                self.auditor.tool_error(
+                    self.name, tc.function.name, str(exc),
+                    trace_id=self._trace_id, span_id=tool_span_id,
+                    parent_span_id=self._span_id, call_id=tool_call_id,
+                )
             raise
         content = str(result) or "[EMPTY]"
         if self.summarize_tool_output and getattr(fn, "summarize_output", True):
             content = await summarize(content, reason, self._client, self.model)
         logger.debug("tool_result name=%s result=%s", tc.function.name, content)
+        self._narrate_result(tc.function.name, content, tool_call_id, is_parallel)
         if self.auditor:
-            self.auditor.tool_result(self.name, tc.function.name, content)
+            self.auditor.tool_result(
+                self.name, tc.function.name, content,
+                trace_id=self._trace_id, span_id=tool_span_id,
+                parent_span_id=self._span_id, call_id=tool_call_id,
+            )
         self._tool_calls_log.append({"name": tc.function.name, "args": args, "result": content})
-        self.on_tool_result(tc.function.name, content)
+        self.on_tool_result(tc.function.name, content, tool_call_id, self._trace_id)
         return {"role": "tool", "tool_call_id": tc.id, "content": content}
 
     async def _execute_tools(self, tool_calls) -> list[dict]:
-        return list(await asyncio.gather(*[self._invoke_tool(tc) for tc in tool_calls]))
+        is_parallel = len(tool_calls) > 1
+        return list(await asyncio.gather(*[self._invoke_tool(tc, is_parallel) for tc in tool_calls]))
 
     async def _complete(self, history: list[dict]) -> ChatCompletionMessage:
         messages = self._build_messages(history)
@@ -305,11 +358,22 @@ class Agent:
         self._tool_calls_log = []
         self._running_summary = ""
         self._compact_warning_injected = False
+        self._trace_id = None
+        self._span_id = None
+        self.parent_span_id = None
 
-    async def run(self, prompt: str) -> str:
+    async def run(self, prompt: str, _trace_id: str | None = None, _parent_span_id: str | None = None) -> str:
+        self._trace_id = _trace_id or str(uuid.uuid4())
+        self._span_id = uuid.uuid4().hex[:8]
+        if _parent_span_id:
+            self.parent_span_id = _parent_span_id
         logger.debug("run agent=%s prompt=%r", self.name, prompt[:80])
         if self.auditor:
-            self.auditor.agent_start(self.name, prompt)
+            self.auditor.agent_start(
+                self.name, prompt,
+                trace_id=self._trace_id, span_id=self._span_id,
+                parent_span_id=self.parent_span_id,
+            )
         self._history.append({"role": "user", "content": prompt})
 
         while True:
@@ -357,7 +421,11 @@ class Agent:
                     self._history = inject_summary(self._history, self._running_summary)
                 result = message.content or ""
                 if self.auditor:
-                    self.auditor.agent_end(self.name, result, self._turn_count, self.cost)
+                    self.auditor.agent_end(
+                        self.name, result, self._turn_count, self.cost,
+                        trace_id=self._trace_id, span_id=self._span_id,
+                        parent_span_id=self.parent_span_id,
+                    )
                 return result
 
             tool_results = await self._execute_tools(message.tool_calls)

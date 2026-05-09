@@ -86,53 +86,50 @@ def read_diff() -> str:
         return f.read()
 
 
-# ── Specialist sub-agents ─────────────────────────────────────────────────────
-
-security_reviewer = Agent(
-    name="SecurityReviewer",
-    description="Reviews code changes for security vulnerabilities.",
-    system_prompt=(
-        "You are a security engineer. Read the diff and identify security issues: "
-        "injection attacks, auth bypasses, unsafe data handling, insecure patterns. "
-        "Report each finding with: location, severity (HIGH/MEDIUM/LOW), and a one-line fix."
-    ),
-    tools=[read_diff],
-    max_turns=5,
-)
-security_reviewer.summarize_tool_output = False
-
-performance_reviewer = Agent(
-    name="PerformanceReviewer",
-    description="Reviews code changes for performance issues.",
-    system_prompt=(
-        "You are a performance engineer. Read the diff and identify performance issues: "
-        "N+1 queries, unnecessary loops, inefficient data structures, missing indexes. "
-        "Report each finding with: location, impact, and a one-line fix."
-    ),
-    tools=[read_diff],
-    max_turns=5,
-)
-performance_reviewer.summarize_tool_output = False
-
-correctness_reviewer = Agent(
-    name="CorrectnessReviewer",
-    description="Reviews code changes for logic errors and correctness bugs.",
-    system_prompt=(
-        "You are a correctness-focused engineer. Read the diff and identify logic errors: "
-        "off-by-one errors, wrong comparisons, incorrect return values, mismatched contracts. "
-        "Report each finding with: location, what is wrong, and the correct behavior."
-    ),
-    tools=[read_diff],
-    max_turns=5,
-)
-correctness_reviewer.summarize_tool_output = False
-
-
 # ── Orchestrator ──────────────────────────────────────────────────────────────
 
 async def main() -> None:
     with open(DIFF_PATH, "w") as f:
         f.write(DIFF_CONTENT)
+
+    security_reviewer = Agent(
+        name="SecurityReviewer",
+        description="Reviews code changes for security vulnerabilities.",
+        system_prompt=(
+            "You are a security engineer. Read the diff and identify security issues: "
+            "injection attacks, auth bypasses, unsafe data handling, insecure patterns. "
+            "Report each finding with: location, severity (HIGH/MEDIUM/LOW), and a one-line fix."
+        ),
+        tools=[read_diff],
+        max_turns=5,
+    )
+    security_reviewer.summarize_tool_output = False
+
+    performance_reviewer = Agent(
+        name="PerformanceReviewer",
+        description="Reviews code changes for performance issues.",
+        system_prompt=(
+            "You are a performance engineer. Read the diff and identify performance issues: "
+            "N+1 queries, unnecessary loops, inefficient data structures, missing indexes. "
+            "Report each finding with: location, impact, and a one-line fix."
+        ),
+        tools=[read_diff],
+        max_turns=5,
+    )
+    performance_reviewer.summarize_tool_output = False
+
+    correctness_reviewer = Agent(
+        name="CorrectnessReviewer",
+        description="Reviews code changes for logic errors and correctness bugs.",
+        system_prompt=(
+            "You are a correctness-focused engineer. Read the diff and identify logic errors: "
+            "off-by-one errors, wrong comparisons, incorrect return values, mismatched contracts. "
+            "Report each finding with: location, what is wrong, and the correct behavior."
+        ),
+        tools=[read_diff],
+        max_turns=5,
+    )
+    correctness_reviewer.summarize_tool_output = False
 
     orchestrator = Agent(
         name="Orchestrator",

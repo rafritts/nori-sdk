@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import time
 import uuid
 
 from openai import AsyncOpenAI
@@ -79,6 +80,8 @@ class Agent:
         self._checkpoint = checkpoint
         self.tool_timeout: float | None = tool_timeout
         self.run_timeout: float | None = run_timeout
+        self._run_start: float | None = None
+        self._elapsed: float | None = None
         self._prompt_tokens: int = 0
         self._completion_tokens: int = 0
         self._tool_calls_log: list[dict] = []
@@ -236,10 +239,22 @@ class Agent:
         if not self.narration or not self.narration_summary:
             return
         total = self._prompt_tokens + self._completion_tokens
+        elapsed_part = f" | {self._elapsed:.1f}s" if self._elapsed is not None else ""
         msg = (
             f"{self.narrator_prefix}{self.name}: "
-            f"{self._turn_count} turns | {total:,} tokens | ${self.cost:.4f}"
+            f"{self._turn_count} turns | {total:,} tokens | ${self.cost:.4f}{elapsed_part}"
         )
+        narration_logger.debug(msg)
+        self.on_narration(msg)
+
+    def _narrate_elapsed(self, tool_name: str, elapsed: float, call_id: str | None, is_parallel: bool) -> None:
+        if not self.narration:
+            return
+        if is_parallel and self.narration_call_id and call_id:
+            name_part = f"{tool_name}-{call_id}"
+        else:
+            name_part = tool_name
+        msg = f"{self.narrator_prefix}{name_part}[{elapsed:.2f}s]"
         narration_logger.debug(msg)
         self.on_narration(msg)
 
@@ -346,6 +361,7 @@ class Agent:
                 trace_id=self._trace_id, span_id=tool_span_id,
                 parent_span_id=self._span_id, call_id=tool_call_id,
             )
+        tool_start = time.perf_counter()
         try:
             if self.tool_timeout is not None:
                 result = await asyncio.wait_for(fn(**args), timeout=self.tool_timeout)
@@ -374,10 +390,12 @@ class Agent:
                     parent_span_id=self._span_id, call_id=tool_call_id,
                 )
             raise
+        tool_elapsed = time.perf_counter() - tool_start
         content = str(result) or "[EMPTY]"
         if self.summarize_tool_output and getattr(fn, "summarize_output", True):
             content = await summarize(content, reason, self._client, self.model)
-        logger.debug("tool_result name=%s result=%s", tc.function.name, content)
+        logger.debug("tool_result name=%s result=%s elapsed=%.2fs", tc.function.name, content, tool_elapsed)
+        self._narrate_elapsed(tc.function.name, tool_elapsed, tool_call_id, is_parallel)
         self._narrate_result(tc.function.name, content, tool_call_id, is_parallel)
         if self.auditor:
             self.auditor.tool_result(
@@ -433,6 +451,11 @@ class Agent:
     def tool_calls(self) -> list[dict]:
         return self._tool_calls_log
 
+    @property
+    def elapsed(self) -> float | None:
+        """Seconds elapsed during the last run(). None if run() hasn't been called."""
+        return self._elapsed
+
     def reset(self) -> None:
         self._history = []
         self._turn_count = 0
@@ -444,6 +467,8 @@ class Agent:
         self._trace_id = None
         self._span_id = None
         self.parent_span_id = None
+        self._run_start = None
+        self._elapsed = None
 
     async def run(
         self,
@@ -470,10 +495,14 @@ class Agent:
         else:
             self._history.append({"role": "user", "content": prompt})
 
+        self._run_start = time.perf_counter()
         try:
             async with asyncio.timeout(self.run_timeout):
-                return await self._run_loop()
+                result = await self._run_loop()
+            self._elapsed = time.perf_counter() - self._run_start
+            return result
         except asyncio.TimeoutError:
+            self._elapsed = time.perf_counter() - self._run_start
             raise RunTimeout(
                 f"{self.name} exceeded run_timeout={self.run_timeout}s "
                 f"after {self._turn_count} turns"

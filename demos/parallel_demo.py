@@ -20,10 +20,11 @@ Bugs planted in the PR diff:
   delete_user()         — rowcount >= 0 always True (catches zero-row deletes)
 """
 
+import config
 import asyncio
 import textwrap
 
-from nori import Agent, Model, Provider
+from nori import Agent
 from nori.audit import AuditLogger
 from nori.tool import tool
 
@@ -93,7 +94,6 @@ async def main() -> None:
 
     security_reviewer = Agent(
         name="SecurityReviewer",
-        model=Model(id="grok-4.3", provider=Provider.XAI),
         description="Reviews code changes for security vulnerabilities.",
         system_prompt=(
             "You are a security engineer. Read the diff and identify security issues: "
@@ -106,7 +106,6 @@ async def main() -> None:
 
     performance_reviewer = Agent(
         name="PerformanceReviewer",
-        model=Model(id="grok-4.3", provider=Provider.XAI),
         description="Reviews code changes for performance issues.",
         system_prompt=(
             "You are a performance engineer. Read the diff and identify performance issues: "
@@ -119,7 +118,6 @@ async def main() -> None:
 
     correctness_reviewer = Agent(
         name="CorrectnessReviewer",
-        model=Model(id="grok-4.3", provider=Provider.XAI),
         description="Reviews code changes for logic errors and correctness bugs.",
         system_prompt=(
             "You are a correctness-focused engineer. Read the diff and identify logic errors: "
@@ -132,7 +130,6 @@ async def main() -> None:
 
     orchestrator = Agent(
         name="Orchestrator",
-        model=Model(id="grok-4.3", provider=Provider.XAI),
         system_prompt=(
             "You are a lead engineer running a code review. "
             "You have three specialist reviewers: SecurityReviewer, PerformanceReviewer, "

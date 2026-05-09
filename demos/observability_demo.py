@@ -8,12 +8,13 @@ Parallel tool calls automatically get call_id correlation in narration and full
 trace_id/span_id/parent_span_id in the audit stream.
 """
 
+import config
 import asyncio
 import json
 import logging
 import logging.handlers
 
-from nori import Agent, Model, Provider
+from nori import Agent
 from nori.audit import AuditLogger
 from nori.tool import tool
 
@@ -61,7 +62,6 @@ def get_load() -> str:
 async def main():
     agent = Agent(
         name="ObservabilityDemo",
-        model=Model(id="grok-4.3", provider=Provider.XAI),
         system_prompt="You are a system info agent. Use your tools to answer questions.",
         tools=[get_system_info, get_uptime, get_load],
     )

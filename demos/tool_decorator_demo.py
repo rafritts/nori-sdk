@@ -14,10 +14,11 @@ Shows:
   5. All of the above wired into a real agent run
 """
 
+import config
 import asyncio
 import json
 
-from nori import Agent, Model, Provider
+from nori import Agent
 from nori.audit import AuditLogger
 from nori.tool import tool
 
@@ -97,7 +98,6 @@ async def run_agent():
 
     agent = Agent(
         name="ToolDemoAgent",
-        model=Model(id="grok-4.3", provider=Provider.XAI),
         system_prompt="You are a helpful assistant with access to weather, metrics, and stock tools.",
         tools=[get_tokyo_weather, get_raw_metrics, fetch_price],
     )

@@ -11,9 +11,10 @@ Each tier is additive. The agent uses these as regular tools — the model
 decides when and why to invoke them.
 """
 
+import config
 import asyncio
 
-from nori import Agent, Model, SelfModify, Provider
+from nori import Agent, SelfModify
 from nori.audit import AuditLogger
 from nori.tool import tool
 
@@ -33,7 +34,6 @@ async def scenario_custodian(auditor: AuditLogger):
 
     agent = Agent(
         name="CustodianAgent",
-        model=Model(id="grok-4.3", provider=Provider.XAI),
         system_prompt="You are a generic assistant.",
         self_modify=SelfModify.CUSTODIAN,
     )
@@ -64,7 +64,6 @@ async def scenario_modify(auditor: AuditLogger):
 
     agent = Agent(
         name="ModifyAgent",
-        model=Model(id="grok-4.3", provider=Provider.XAI),
         system_prompt=(
             "You are a utility agent. If asked to restrict your own capabilities, "
             "use remove_tool to do so, then confirm."
@@ -93,7 +92,6 @@ async def scenario_mutation(auditor: AuditLogger):
 
     agent = Agent(
         name="MutationAgent",
-        model=Model(id="grok-4.3", provider=Provider.XAI),
         system_prompt=(
             "You are a resourceful agent. If a task is simple, switch to a lighter "
             "model to save cost, then complete the task."

@@ -14,9 +14,10 @@ Shows:
   2. Forced autocompaction by setting a very small max_context_chars
 """
 
+import config
 import asyncio
 
-from nori import Agent, Model, Provider
+from nori import Agent
 from nori.audit import AuditLogger
 from nori.tool import tool
 
@@ -49,7 +50,6 @@ async def scenario_running_summary(auditor: AuditLogger):
 
     agent = Agent(
         name="BookAgent",
-        model=Model(id="grok-4.3", provider=Provider.XAI),
         system_prompt="You are a literary assistant helping a reader track a story.",
         tools=[get_chapter],
     )
@@ -81,7 +81,6 @@ async def scenario_autocompaction(auditor: AuditLogger):
 
     agent = Agent(
         name="CompactAgent",
-        model=Model(id="grok-4.3", provider=Provider.XAI),
         system_prompt="You are a data agent. Fetch chapters as requested.",
         tools=[get_chapter],
         max_turns=20,

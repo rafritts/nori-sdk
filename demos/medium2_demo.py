@@ -1,6 +1,7 @@
+import config
 import asyncio
 
-from nori import Agent, Model, Provider
+from nori import Agent
 from nori.audit import AuditLogger
 from nori.tools.bash import Bash
 
@@ -30,7 +31,6 @@ counting the words yourself with shell tools
 async def main():
     agent = Agent(
         name="Medium2Agent",
-        model=Model(id="grok-4.3", provider=Provider.XAI),
         system_prompt=SYSTEM_PROMPT,
         tools=[Bash],
         max_turns=30,

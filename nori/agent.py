@@ -21,6 +21,8 @@ from nori.summarizer import summarize
 logger = logging.getLogger("nori.agent")
 narration_logger = logging.getLogger("nori.narration")
 
+_UNSET = object()
+
 _COMPACT_WARNING = (
     "[System] Context window is 70% full. Consider wrapping up or calling Compact."
 )
@@ -31,10 +33,10 @@ class Agent:
     def __init__(
         self,
         name: str,
-        model: Model,
+        model: Model | None = None,
         system_prompt: str = "",
         tools: list = None,
-        max_turns: int | None = 10,
+        max_turns: int | None = _UNSET,
         description: str = "",
         context_files: list[ContextFile] = None,
         permissions: Permissions = None,
@@ -42,9 +44,20 @@ class Agent:
         self_modify: SelfModify | None = None,
         summarize_tool_output: bool = False,
         running_context_summary: bool = False,
-        tool_timeout: float | None = None,
-        run_timeout: float | None = None,
+        tool_timeout: float | None = _UNSET,
+        run_timeout: float | None = _UNSET,
     ):
+        _d = config.get_defaults()
+        model = model or _d.model
+        if model is None:
+            raise ValueError("Agent requires a model. Pass model= or call nori.configure(model=...).")
+        if max_turns is _UNSET:
+            max_turns = _d.max_turns if _d.max_turns is not None else 10
+        if tool_timeout is _UNSET:
+            tool_timeout = _d.tool_timeout
+        if run_timeout is _UNSET:
+            run_timeout = _d.run_timeout
+
         if not name:
             raise ValueError("Agent name must be a non-empty string.")
         if max_turns is not None and max_turns <= 0:
@@ -57,6 +70,9 @@ class Agent:
         self._context_files = context_files or []
         self.__client: AsyncOpenAI | None = None
         self._tools: dict = {self._tool_name(t): t for t in (tools or [])}
+        for t in self._tools.values():
+            if hasattr(t, "model") and t.model is None:
+                t.model = _d.tool_models.get(type(t)) or model
         self._permissions = PermissionGuard(
             permissions.allow if permissions else None,
             permissions.deny if permissions else None,

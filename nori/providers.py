@@ -40,8 +40,10 @@ class _Price:
 
 _PRICING: dict[str, _Price] = {
     # OpenAI
-    "gpt-4o":                       _Price(prompt=2.50,  completion=10.00),
-    "gpt-4o-mini":                  _Price(prompt=0.15,  completion=0.60),
+    "gpt-5.5":                      _Price(prompt=5.00,  completion=30.00),
+    "gpt-5.4":                      _Price(prompt=2.50,  completion=15.00),
+    "gpt-5.4-mini":                 _Price(prompt=0.75,  completion=4.50),
+    "gpt-5.4-nano":                 _Price(prompt=0.20,  completion=1.25),
     # Anthropic
     "claude-opus-4-7":              _Price(prompt=5.00,  completion=25.00),
     "claude-opus-4-6":              _Price(prompt=5.00,  completion=25.00),
@@ -54,17 +56,16 @@ _PRICING: dict[str, _Price] = {
     "gemini-3.1-flash-lite":        _Price(prompt=0.25,  completion=1.50),
     "gemini-3.1-pro-preview":       _Price(prompt=2.00,  completion=12.00),
     # DeepSeek
-    "DeepSeek-V4-Flash":                _Price(prompt=0.14,  completion=0.28),
-    "deepseek-reasoner":            _Price(prompt=0.55,  completion=2.19),
+    "DeepSeek-V4-Flash":            _Price(prompt=0.14,  completion=0.28),
+    "DeepSeek-V4-Pro":              _Price(prompt=1.74,  completion=3.48),
     # Kimi (Moonshot)
-    "kimi-k2":                      _Price(prompt=0.95,  completion=4.00),
+    "kimi-k2.6":                    _Price(prompt=0.95,  completion=4.00),
     # MiniMax
-    "MiniMax-M1":                   _Price(prompt=0.30,  completion=1.20),
+    "MiniMax-M2.7":                 _Price(prompt=0.30,  completion=1.20),
     # GLM (Zhipu)
-    "glm-4-plus":                   _Price(prompt=0.60,  completion=2.20),
+    "glm-5.1":                      _Price(prompt=1.40,  completion=4.40),
     # Qwen (Alibaba)
-    "qwen-max":                     _Price(prompt=0.40,  completion=1.60),
-    "qwen-plus":                    _Price(prompt=0.07,  completion=0.21),
+    "qwen3.6-plus":                 _Price(prompt=0.50,  completion=3.00),
 }
 
 

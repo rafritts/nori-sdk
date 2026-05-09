@@ -182,12 +182,22 @@ class Agent:
         total = sum(len(str(m.get("content", ""))) for m in self._history)
         return total / self.max_context_chars if self.max_context_chars else 0.0
 
-    async def _compact(self) -> None:
+    async def _compact(self, fill: float = 0.0) -> None:
         self._running_summary = await update_running_summary(
             self._history, self._running_summary, self._client, self.model
         )
         self._history = inject_summary(self._history, self._running_summary)
         self._compact_warning_injected = False
+        msg = f"{self.narrator_prefix}{self.name}[Context compacted ({fill:.0%} full)]"
+        narration_logger.debug(msg)
+        if self.narration:
+            self.on_narration(msg)
+        if self.auditor:
+            self.auditor.compaction(
+                self.name, fill,
+                trace_id=self._trace_id, span_id=self._span_id,
+                parent_span_id=self.parent_span_id,
+            )
 
     def _default_narrator(self, text: str) -> None:
         print(text)
@@ -276,7 +286,7 @@ class Agent:
 
     async def _invoke_tool(self, tc, is_parallel: bool = False) -> dict:
         if tc.function.name == "Compact":
-            await self._compact()
+            await self._compact(fill=self._context_fill())
             return {"role": "tool", "tool_call_id": tc.id, "content": "History compacted."}
         self._permissions.check(tc.function.name)
         fn = self._tools[tc.function.name]
@@ -398,7 +408,7 @@ class Agent:
 
             fill = self._context_fill()
             if fill >= 0.85:
-                await self._compact()
+                await self._compact(fill=fill)
             elif fill >= 0.70 and not self._compact_warning_injected:
                 self._history.append({
                     "role": "user",
@@ -406,6 +416,10 @@ class Agent:
                     "_marker": _COMPACT_MARKER,
                 })
                 self._compact_warning_injected = True
+                warn_msg = f"{self.narrator_prefix}{self.name}[Context warning ({fill:.0%} full)]"
+                narration_logger.debug(warn_msg)
+                if self.narration:
+                    self.on_narration(warn_msg)
 
             if message.content and message.tool_calls and self.narration:
                 self.on_narration(f"{self.narrator_prefix}{message.content}")

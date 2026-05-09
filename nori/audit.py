@@ -68,5 +68,12 @@ class AuditLogger:
             agent=agent, name=name, error=error,
         )
 
+    def compaction(self, agent: str, fill: float, *, trace_id: str, span_id: str, parent_span_id: str | None) -> None:
+        self._write(
+            "compaction",
+            trace_id=trace_id, span_id=span_id, parent_span_id=parent_span_id,
+            agent=agent, fill=round(fill, 3),
+        )
+
     def close(self) -> None:
         self._file.close()

@@ -1,4 +1,20 @@
-from enum import Enum, IntEnum
+from enum import Enum, IntEnum, StrEnum
+
+
+class BaseURL(StrEnum):
+    OPENAI      = "https://api.openai.com/v1"
+    ANTHROPIC   = "https://api.anthropic.com/v1"
+    XAI         = "https://api.x.ai/v1"
+    GROQ        = "https://api.groq.com/openai/v1"
+    MISTRAL     = "https://api.mistral.ai/v1"
+    TOGETHER    = "https://api.together.xyz/v1"
+    FIREWORKS   = "https://api.fireworks.ai/inference/v1"
+    DEEPSEEK    = "https://api.deepseek.com/v1"
+    CEREBRAS    = "https://api.cerebras.ai/v1"
+    PERPLEXITY  = "https://api.perplexity.ai"
+    GOOGLE      = "https://generativelanguage.googleapis.com/v1beta/openai/"
+    OPENROUTER  = "https://openrouter.ai/api/v1"
+    OLLAMA      = "http://localhost:11434/v1"
 
 
 class ContextWindow(IntEnum):

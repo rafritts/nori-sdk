@@ -29,7 +29,7 @@ Do each step explicitly and show all output.
 async def main():
     agent = Agent(
         name="DemoAgent",
-        model=Model(id="grok-4.3", context_window=ContextWindow.K24),
+        model=Model(id="gemma4:31b", context_window=ContextWindow.K24),
         system_prompt=SYSTEM_PROMPT,
         tools=[Bash],
         max_turns=20,

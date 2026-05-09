@@ -19,11 +19,7 @@ from nori.tools.view_image import make_view_image
 
 IMAGE_PATH = "/tmp/nori_vision_demo.png"
 
-VISION_MODEL = Model(
-    id="gemma4:31b",
-    base_url=Provider.OLLAMA.base_url,
-    api_key=Provider.OLLAMA.api_key,
-)
+VISION_MODEL = Model(id="gemma4:31b", provider=Provider.OLLAMA)
 
 SYSTEM_PROMPT = """\
 You are a helpful assistant. When asked about an image, use the ViewImage tool to inspect it.

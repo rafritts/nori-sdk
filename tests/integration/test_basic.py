@@ -7,7 +7,7 @@ import pytest
 from nori import Agent, Model, Provider
 from nori.tool import tool
 
-OLLAMA_MODEL = Model(id="gemma4:31b", base_url=Provider.OLLAMA.base_url)
+OLLAMA_MODEL = Model(id="gemma4:31b", provider=Provider.OLLAMA)
 
 
 @pytest.mark.asyncio

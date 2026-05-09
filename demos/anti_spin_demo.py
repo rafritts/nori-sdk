@@ -11,7 +11,7 @@ Shows:
 
 import asyncio
 
-from nori import Agent, Checkpoint, CheckpointScrutiny, Model
+from nori import Agent, Checkpoint, CheckpointScrutiny, Model, Provider
 from nori.audit import AuditLogger
 from nori.exceptions import AntiSpinTerminated
 from nori.tool import tool
@@ -49,7 +49,7 @@ async def scenario_healthy(auditor: AuditLogger):
 
     agent = Agent(
         name="RecordAgent",
-        model=Model(id="grok-4.3"),
+        model=Model(id="grok-4.3", provider=Provider.XAI),
         system_prompt="You are a data agent. Fetch and summarize records efficiently.",
         tools=[fetch_record, summarize_records],
         checkpoint=Checkpoint(every=3, scrutiny=CheckpointScrutiny.MODERATE),
@@ -82,7 +82,7 @@ async def scenario_spin(auditor: AuditLogger):
 
     agent = Agent(
         name="SpinAgent",
-        model=Model(id="grok-4.3"),
+        model=Model(id="grok-4.3", provider=Provider.XAI),
         system_prompt=(
             "You are a diagnostic agent. You must keep investigating until you reach "
             "a definitive conclusion. Do not stop until you are 100% certain."

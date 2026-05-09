@@ -126,7 +126,7 @@ async def main() -> None:
 
     agent = Agent(
         name="BugHunter",
-        model=Model(id="gemma4:31b", base_url=Provider.OLLAMA.base_url, context_window=ContextWindow.K24),
+        model=Model(id="gemma4:31b", provider=Provider.OLLAMA, context_window=ContextWindow.K24),
         system_prompt=SYSTEM_PROMPT,
         tools=[Bash, FileEdit, FileSearch],
         max_turns=25,

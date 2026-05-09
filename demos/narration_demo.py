@@ -13,7 +13,7 @@ Shows:
 
 import asyncio
 
-from nori import Agent, Model
+from nori import Agent, Model, Provider
 from nori.audit import AuditLogger
 from nori.tool import tool
 
@@ -55,7 +55,7 @@ async def scenario_default_narration(auditor: AuditLogger):
 
     agent = Agent(
         name="OpsAgent",
-        model=Model(id="grok-4.3"),
+        model=Model(id="grok-4.3", provider=Provider.XAI),
         system_prompt="You are an ops agent. Check services and report issues.",
         tools=[check_service, get_service_logs],
     )
@@ -77,7 +77,7 @@ async def scenario_custom_callback(auditor: AuditLogger):
 
     agent = Agent(
         name="OpsAgent",
-        model=Model(id="grok-4.3"),
+        model=Model(id="grok-4.3", provider=Provider.XAI),
         system_prompt="You are an ops agent. Check services and report issues.",
         tools=[check_service, get_service_logs],
     )
@@ -95,7 +95,7 @@ async def scenario_narrator_prefix(auditor: AuditLogger):
 
     infra = Agent(
         name="InfraAgent",
-        model=Model(id="grok-4.3"),
+        model=Model(id="grok-4.3", provider=Provider.XAI),
         system_prompt="You are an infrastructure agent.",
         tools=[check_service],
     )
@@ -105,7 +105,7 @@ async def scenario_narrator_prefix(auditor: AuditLogger):
 
     app = Agent(
         name="AppAgent",
-        model=Model(id="grok-4.3"),
+        model=Model(id="grok-4.3", provider=Provider.XAI),
         system_prompt="You are an application agent.",
         tools=[get_service_logs],
     )

@@ -9,6 +9,7 @@ Ollama: pull a vision-capable model first, e.g.:
     ollama pull gemma4:31b  # also supports vision
 """
 
+import config
 import asyncio
 from io import BytesIO
 

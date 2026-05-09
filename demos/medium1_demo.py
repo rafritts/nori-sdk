@@ -1,3 +1,4 @@
+import config
 import asyncio
 
 from nori import Agent, Model, Provider, ContextWindow

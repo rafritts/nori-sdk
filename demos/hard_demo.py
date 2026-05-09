@@ -13,6 +13,7 @@ Bugs planted:
 Constraint: the agent must not modify test files.
 """
 
+import config
 import asyncio
 import textwrap
 

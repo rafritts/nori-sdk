@@ -1,17 +1,19 @@
 """
-Integration tests — require real API credentials in .env or environment.
+Integration tests — run against a local Ollama instance.
 Run with: uv run pytest tests/integration/ -v
 """
 import pytest
 
-from nori import Agent
+from nori import Agent, Model, Provider
 from nori.tool import tool
+
+OLLAMA_MODEL = Model(id="gemma4:31b", base_url=Provider.OLLAMA.base_url)
 
 
 @pytest.mark.asyncio
 async def test_single_completion():
-    """Step 3 verify: single completion returns a non-empty string."""
-    agent = Agent(name="Test", system_prompt="You are a helpful assistant.")
+    """Single completion returns a non-empty string."""
+    agent = Agent(name="Test", model=OLLAMA_MODEL, system_prompt="You are a helpful assistant.")
     result = await agent.run("Say hello.")
     assert isinstance(result, str)
     assert len(result) > 0
@@ -19,7 +21,7 @@ async def test_single_completion():
 
 @pytest.mark.asyncio
 async def test_tool_calling_loop():
-    """Step 4 verify: agent calls a tool and returns a final response."""
+    """Agent calls a tool and returns a final response."""
     @tool
     def get_weather(city: str) -> str:
         """Get the current weather for a city."""
@@ -27,6 +29,7 @@ async def test_tool_calling_loop():
 
     agent = Agent(
         name="WeatherAgent",
+        model=OLLAMA_MODEL,
         system_prompt="You are a helpful assistant. Use tools when needed.",
         tools=[get_weather],
     )

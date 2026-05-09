@@ -10,7 +10,7 @@ from nori.anti_spin import Checkpoint, evaluate_checkpoint
 import nori.config as config
 from nori.context import ContextFile, inject_summary, update_running_summary
 from nori.enums import ContextRole, SelfModify
-from nori.exceptions import AntiSpinTerminated, MaxTurnsExceeded
+from nori.exceptions import AntiSpinTerminated, MaxTurnsExceeded, RunTimeout, ToolTimeout
 from nori.mcp.server import MCPServer
 from nori.model import Model
 from nori.permissions import Permissions, PermissionGuard
@@ -41,6 +41,8 @@ class Agent:
         self_modify: SelfModify | None = None,
         summarize_tool_output: bool = False,
         running_context_summary: bool = False,
+        tool_timeout: float | None = None,
+        run_timeout: float | None = None,
     ):
         if not name:
             raise ValueError("Agent name must be a non-empty string.")
@@ -75,6 +77,8 @@ class Agent:
         if self_modify is not None:
             self._register_self_modify_tools(self_modify)
         self._checkpoint = checkpoint
+        self.tool_timeout: float | None = tool_timeout
+        self.run_timeout: float | None = run_timeout
         self._prompt_tokens: int = 0
         self._completion_tokens: int = 0
         self._tool_calls_log: list[dict] = []
@@ -175,6 +179,8 @@ class Agent:
             tools=list(self._tools.values()),
             max_turns=self._max_turns,
             description=self.description,
+            tool_timeout=self.tool_timeout,
+            run_timeout=self.run_timeout,
         )
         return await sub.run(task, _trace_id=self._trace_id, _parent_span_id=self._span_id)
 
@@ -341,7 +347,24 @@ class Agent:
                 parent_span_id=self._span_id, call_id=tool_call_id,
             )
         try:
-            result = await fn(**args)
+            if self.tool_timeout is not None:
+                result = await asyncio.wait_for(fn(**args), timeout=self.tool_timeout)
+            else:
+                result = await fn(**args)
+        except asyncio.TimeoutError:
+            msg = f"[ToolTimeout: {tc.function.name} did not complete within {self.tool_timeout}s]"
+            logger.warning("tool_timeout name=%s timeout=%s", tc.function.name, self.tool_timeout)
+            narrate_msg = f"{self.narrator_prefix}{tc.function.name}[Timed out after {self.tool_timeout}s]"
+            narration_logger.debug(narrate_msg)
+            if self.narration:
+                self.on_narration(narrate_msg)
+            if self.auditor:
+                self.auditor.tool_error(
+                    self.name, tc.function.name, msg,
+                    trace_id=self._trace_id, span_id=tool_span_id,
+                    parent_span_id=self._span_id, call_id=tool_call_id,
+                )
+            return {"role": "tool", "tool_call_id": tc.id, "content": msg}
         except Exception as exc:
             logger.error("tool_error name=%s error=%s", tc.function.name, exc)
             if self.auditor:
@@ -447,6 +470,16 @@ class Agent:
         else:
             self._history.append({"role": "user", "content": prompt})
 
+        try:
+            async with asyncio.timeout(self.run_timeout):
+                return await self._run_loop()
+        except asyncio.TimeoutError:
+            raise RunTimeout(
+                f"{self.name} exceeded run_timeout={self.run_timeout}s "
+                f"after {self._turn_count} turns"
+            )
+
+    async def _run_loop(self) -> str:
         while True:
             if self._max_turns is not None and self._turn_count >= self._max_turns:
                 raise MaxTurnsExceeded(f"Reached max_turns={self._max_turns}")

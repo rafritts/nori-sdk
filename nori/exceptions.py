@@ -8,3 +8,11 @@ class AntiSpinTerminated(Exception):
 
 class PermissionError(Exception):
     pass
+
+
+class ToolTimeout(Exception):
+    pass
+
+
+class RunTimeout(Exception):
+    pass

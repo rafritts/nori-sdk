@@ -127,7 +127,6 @@ async def test_agent_level_summarize_false_skips_all():
         MockOpenAI.return_value = mock_client
 
         agent = Agent(name="T", model="grok-4.3", tools=[big_output])
-        agent.summarize_tool_output = False
         await agent.run("go")
 
         assert mock_client.chat.completions.create.call_count == 2

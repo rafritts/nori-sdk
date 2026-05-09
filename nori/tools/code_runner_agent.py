@@ -11,5 +11,4 @@ async def CodeRunnerAgent(task: str) -> str:
         system_prompt="You are a Python execution agent. Write and run code to complete the task.",
         tools=[CodeRunner],
     )
-    sub.summarize_tool_output = False
     return await sub.run(task)

@@ -11,5 +11,4 @@ async def WebSearch(query: str) -> str:
         system_prompt="You are a research assistant. Use WebClient to fetch pages and synthesize an answer.",
         tools=[WebClient],
     )
-    sub.summarize_tool_output = False
     return await sub.run(query)

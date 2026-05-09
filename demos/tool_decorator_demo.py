@@ -100,7 +100,6 @@ async def run_agent():
         system_prompt="You are a helpful assistant with access to weather, metrics, and stock tools.",
         tools=[get_tokyo_weather, get_raw_metrics, fetch_price],
     )
-    agent.summarize_tool_output = False
     agent.narration = True
 
     result = await agent.run(

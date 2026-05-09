@@ -36,9 +36,6 @@ async def main():
         max_turns=30,
     )
     agent.narration = True
-    agent.summarize_tool_output = False
-    agent.on_tool_result = lambda name, result: print(f"  └─ {result.strip()}\n")
-
     agent.auditor = AuditLogger("logs/hard_demo.audit.log")
 
     print("=" * 60)

@@ -103,7 +103,6 @@ async def main() -> None:
         tools=[read_diff],
         max_turns=5,
     )
-    security_reviewer.summarize_tool_output = False
 
     performance_reviewer = Agent(
         name="PerformanceReviewer",
@@ -116,7 +115,6 @@ async def main() -> None:
         tools=[read_diff],
         max_turns=5,
     )
-    performance_reviewer.summarize_tool_output = False
 
     correctness_reviewer = Agent(
         name="CorrectnessReviewer",
@@ -129,7 +127,6 @@ async def main() -> None:
         tools=[read_diff],
         max_turns=5,
     )
-    correctness_reviewer.summarize_tool_output = False
 
     orchestrator = Agent(
         name="Orchestrator",
@@ -143,7 +140,6 @@ async def main() -> None:
         tools=[security_reviewer, performance_reviewer, correctness_reviewer],
         max_turns=10,
     )
-    orchestrator.summarize_tool_output = False
     orchestrator.narration = True
     orchestrator.auditor = AuditLogger(AUDIT_FILE)
 

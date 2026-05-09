@@ -130,7 +130,6 @@ async def main() -> None:
         tools=[Bash, FileEdit, FileSearch],
         max_turns=25,
     )
-    agent.summarize_tool_output = False
     agent.narration = True
 
     print("=" * 60)

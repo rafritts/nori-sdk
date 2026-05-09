@@ -525,7 +525,6 @@ def make_intake_agent() -> Agent:
         tools=[get_customer, get_order, validate_discount_code, create_return_request, enqueue],
         max_turns=12,
     )
-    agent.summarize_tool_output = False
     agent.narration = True
     return agent
 
@@ -560,7 +559,6 @@ def make_processor_agent() -> Agent:
         ],
         max_turns=20,
     )
-    agent.summarize_tool_output = False
     agent.narration = True
     return agent
 

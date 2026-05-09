@@ -84,7 +84,6 @@ async def main():
         ),
         tools=[researcher, writer],
     )
-    orchestrator.summarize_tool_output = False
     orchestrator.narration = True
 
     result = await orchestrator.run(

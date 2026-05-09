@@ -57,7 +57,6 @@ async def test_tool_call_logged_at_debug(caplog):
 
         with caplog.at_level(logging.DEBUG, logger="nori.agent"):
             agent = Agent(name="T", model="grok-4.3", tools=[sample_tool])
-            agent.summarize_tool_output = False
             await agent.run("go")
 
     assert any("tool_call" in r.message for r in caplog.records)
@@ -84,7 +83,6 @@ async def test_tool_result_stored_in_log(caplog):
         MockOpenAI.return_value = mock_client
 
         agent = Agent(name="T", model="grok-4.3", tools=[sample_tool])
-        agent.summarize_tool_output = False
         await agent.run("go")
 
     assert agent.tool_calls[0]["result"] == "the result"
@@ -111,7 +109,6 @@ async def test_on_tool_result_callback_fires(caplog):
 
         received = []
         agent = Agent(name="T", model="grok-4.3", tools=[sample_tool])
-        agent.summarize_tool_output = False
         agent.on_tool_result = lambda name, result, call_id, trace_id: received.append((name, result))
         await agent.run("go")
 
@@ -139,7 +136,6 @@ async def test_narration_logged_at_debug(caplog):
 
         with caplog.at_level(logging.DEBUG, logger="nori.narration"):
             agent = Agent(name="T", model="grok-4.3", tools=[narr_tool])
-            agent.summarize_tool_output = False
             await agent.run("go")
 
     assert any("narr_tool" in r.message for r in caplog.records)
@@ -165,7 +161,6 @@ async def test_error_logged_on_tool_failure(caplog):
 
         with caplog.at_level(logging.ERROR, logger="nori.agent"):
             agent = Agent(name="T", model="grok-4.3", tools=[broken_tool])
-            agent.summarize_tool_output = False
             with pytest.raises(RuntimeError):
                 await agent.run("go")
 
@@ -193,7 +188,6 @@ async def test_narration_summary_fires_after_run():
 
         fired = []
         agent = Agent(name="T", model="grok-4.3", tools=[sample_tool])
-        agent.summarize_tool_output = False
         agent.narration = True
         agent.on_narration = lambda s: fired.append(s)
         await agent.run("go")

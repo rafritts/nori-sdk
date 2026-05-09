@@ -55,7 +55,6 @@ async def scenario_healthy():
         checkpoint=3,
         checkpoint_scrutiny=CheckpointScrutiny.MODERATE,
     )
-    agent.summarize_tool_output = False
     agent.narration = True
 
     result = await agent.run("Fetch records A1, B2, and C3, then summarize them.")
@@ -92,7 +91,6 @@ async def scenario_spin():
         checkpoint_scrutiny=CheckpointScrutiny.STRICT,
         max_turns=20,
     )
-    agent.summarize_tool_output = False
     agent.narration = True
 
     try:

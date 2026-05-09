@@ -30,7 +30,6 @@ async def test_tool_calling_loop():
         system_prompt="You are a helpful assistant. Use tools when needed.",
         tools=[get_weather],
     )
-    agent.summarize_tool_output = False
 
     result = await agent.run("What's the weather in Austin?")
 

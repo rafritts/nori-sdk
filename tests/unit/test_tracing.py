@@ -58,7 +58,6 @@ def spy_tool2(host: str) -> str:
 
 def make_agent(**kwargs):
     agent = Agent(name="T", model="grok-4.3", tools=[spy_tool, spy_tool2], **kwargs)
-    agent.summarize_tool_output = False
     agent._complete = AsyncMock(side_effect=[
         make_tool_call_message("spy_tool", {"city": "NYC", "reason": "checking"}),
         make_text_message(),
@@ -85,7 +84,6 @@ async def test_span_id_is_8_char_hex():
 async def test_call_id_is_first_4_chars_of_span_id():
     fired = []
     agent = Agent(name="T", model="grok-4.3", tools=[spy_tool, spy_tool2])
-    agent.summarize_tool_output = False
     agent.narration = True
     agent.narration_call_id = True
     agent.on_narration = lambda s: fired.append(s)
@@ -105,13 +103,11 @@ async def test_call_id_is_first_4_chars_of_span_id():
 
 async def test_trace_id_inherited_by_sub_agent():
     parent = Agent(name="Parent", model="grok-4.3")
-    parent.summarize_tool_output = False
     parent._complete = AsyncMock(return_value=make_text_message("done"))
     await parent.run("go")
     parent_trace = parent.trace_id
 
     sub = Agent(name="Child", model="grok-4.3")
-    sub.summarize_tool_output = False
     sub._complete = AsyncMock(return_value=make_text_message("done"))
     await sub.run("subtask", _trace_id=parent_trace, _parent_span_id=parent.span_id)
 
@@ -120,13 +116,11 @@ async def test_trace_id_inherited_by_sub_agent():
 
 async def test_parent_span_id_set_on_sub_agent():
     parent = Agent(name="Parent", model="grok-4.3")
-    parent.summarize_tool_output = False
     parent._complete = AsyncMock(return_value=make_text_message("done"))
     await parent.run("go")
     parent_span = parent.span_id
 
     sub = Agent(name="Child", model="grok-4.3")
-    sub.summarize_tool_output = False
     sub._complete = AsyncMock(return_value=make_text_message("done"))
     await sub.run("subtask", _trace_id=parent.trace_id, _parent_span_id=parent_span)
 
@@ -136,7 +130,6 @@ async def test_parent_span_id_set_on_sub_agent():
 async def test_call_id_absent_on_single_tool_call():
     fired = []
     agent = Agent(name="T", model="grok-4.3", tools=[spy_tool])
-    agent.summarize_tool_output = False
     agent.narration = True
     agent.on_narration = lambda s: fired.append(s)
     agent._complete = AsyncMock(side_effect=[
@@ -151,7 +144,6 @@ async def test_call_id_absent_on_single_tool_call():
 async def test_call_id_present_on_parallel_tool_calls():
     fired = []
     agent = Agent(name="T", model="grok-4.3", tools=[spy_tool, spy_tool2])
-    agent.summarize_tool_output = False
     agent.narration = True
     agent.on_narration = lambda s: fired.append(s)
     agent._complete = AsyncMock(side_effect=[
@@ -179,7 +171,6 @@ async def test_narration_trace_id_opt_in():
 async def test_narration_call_id_opt_out():
     fired = []
     agent = Agent(name="T", model="grok-4.3", tools=[spy_tool, spy_tool2])
-    agent.summarize_tool_output = False
     agent.narration = True
     agent.narration_call_id = False
     agent.on_narration = lambda s: fired.append(s)

@@ -58,7 +58,6 @@ async def scenario_default_narration():
         system_prompt="You are an ops agent. Check services and report issues.",
         tools=[check_service, get_service_logs],
     )
-    agent.summarize_tool_output = False
     agent.narration = True
 
     result = await agent.run(TASK)
@@ -79,7 +78,6 @@ async def scenario_custom_callback():
         system_prompt="You are an ops agent. Check services and report issues.",
         tools=[check_service, get_service_logs],
     )
-    agent.summarize_tool_output = False
     agent.narration = True
     agent.on_narration = capture
 
@@ -96,7 +94,6 @@ async def scenario_narrator_prefix():
         system_prompt="You are an infrastructure agent.",
         tools=[check_service],
     )
-    infra.summarize_tool_output = False
     infra.narration = True
     infra.narrator_prefix = "[infra] "
 
@@ -105,7 +102,6 @@ async def scenario_narrator_prefix():
         system_prompt="You are an application agent.",
         tools=[get_service_logs],
     )
-    app.summarize_tool_output = False
     app.narration = True
     app.narrator_prefix = "[app]   "
 

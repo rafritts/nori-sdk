@@ -36,7 +36,6 @@ async def scenario_custodian():
         system_prompt="You are a generic assistant.",
         self_custodian=True,
     )
-    agent.summarize_tool_output = False
     agent.narration = True
 
     print(f"System prompt before: {agent.system_prompt!r}")
@@ -70,7 +69,6 @@ async def scenario_modify():
         tools=[celsius_to_fahrenheit],
         self_modify=True,
     )
-    agent.summarize_tool_output = False
     agent.narration = True
 
     print(f"Tools before: {list(agent._tools.keys())}")
@@ -97,7 +95,6 @@ async def scenario_mutation():
         ),
         self_mutation=True,
     )
-    agent.summarize_tool_output = False
     agent.narration = True
 
     print(f"Model before: {agent.model!r}")

@@ -52,7 +52,6 @@ async def scenario_running_summary():
         system_prompt="You are a literary assistant helping a reader track a story.",
         tools=[get_chapter],
     )
-    agent.summarize_tool_output = False
     agent.running_context_summary = True
     agent.narration = True
 
@@ -84,7 +83,6 @@ async def scenario_autocompaction():
         tools=[get_chapter],
         max_turns=20,
     )
-    agent.summarize_tool_output = False
     agent.narration = True
     # Set a very small context window to force compaction quickly
     agent.max_context_chars = 2_000

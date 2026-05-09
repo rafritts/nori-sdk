@@ -44,6 +44,8 @@ class Agent:
         self_custodian: bool = False,
         self_modify: bool = False,
         self_mutation: bool = False,
+        summarize_tool_output: bool = False,
+        running_context_summary: bool = False,
     ):
         self.name = name
         self.model = model or config.DEFAULT_MODEL
@@ -62,8 +64,8 @@ class Agent:
         self.narrator_prefix: str = ""
         self.on_narration = self._default_narrator
         self.on_tool_result = self._default_tool_result_handler
-        self.summarize_tool_output: bool = True
-        self.running_context_summary: bool = False
+        self.summarize_tool_output = summarize_tool_output
+        self.running_context_summary = running_context_summary
         self._running_summary: str = ""
         self.max_context_chars: int = 200_000
         self._compact_warning_injected: bool = False

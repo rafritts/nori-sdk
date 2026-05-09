@@ -61,6 +61,5 @@ async def test_update_system_prompt_changes_system_prompt():
         MockOpenAI.return_value = mock_client
 
         agent = Agent(name="T", model="grok-4.3", self_custodian=True)
-        agent.summarize_tool_output = False
         await agent.run("update the prompt")
         assert agent.system_prompt == "New instructions."

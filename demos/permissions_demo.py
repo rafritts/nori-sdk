@@ -59,7 +59,6 @@ async def scenario_no_restrictions():
         system_prompt="You are a file agent. Use your tools to complete tasks.",
         tools=ALL_TOOLS,
     )
-    agent.summarize_tool_output = False
     agent.narration = True
     agent.on_tool_result = lambda name, result, call_id, trace_id: print(f"  [{name}] → {result.strip()}")
 
@@ -78,7 +77,6 @@ async def scenario_allow_list():
         tools=ALL_TOOLS,
         allow=["read_file"],
     )
-    agent.summarize_tool_output = False
     agent.narration = True
     agent.on_tool_result = lambda name, result, call_id, trace_id: print(f"  [{name}] → {result.strip()}")
 
@@ -101,7 +99,6 @@ async def scenario_deny_list():
         tools=ALL_TOOLS,
         deny=["delete_file"],
     )
-    agent.summarize_tool_output = False
     agent.narration = True
     agent.on_tool_result = lambda name, result, call_id, trace_id: print(f"  [{name}] → {result.strip()}")
 

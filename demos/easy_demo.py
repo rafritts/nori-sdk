@@ -33,10 +33,8 @@ async def main():
         tools=[Bash],
         max_turns=20,
     )
+    agent.context_length = 24000
     agent.narration = True
-    agent.summarize_tool_output = False
-    agent.on_tool_result = lambda name, result: print(f"  └─ {result.strip()}\n")
-
     agent.auditor = AuditLogger("logs/easy_demo.audit.log")
 
     print("=" * 60)

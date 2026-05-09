@@ -65,7 +65,6 @@ async def main():
         system_prompt="You are a system info agent. Use your tools to answer questions.",
         tools=[get_system_info, get_uptime, get_load],
     )
-    agent.summarize_tool_output = False
     agent.narration = True          # human-facing: auto call_id on parallel turns
     agent.auditor = AuditLogger(AUDIT_FILE)
 

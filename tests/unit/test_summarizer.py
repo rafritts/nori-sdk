@@ -64,7 +64,7 @@ async def test_reason_passed_as_hint():
         )
         MockOpenAI.return_value = mock_client
 
-        agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"), tools=[big_output])
+        agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"), tools=[big_output], summarize_tool_output=True)
         await agent.run("go")
 
         # Second call is the summarizer
@@ -86,7 +86,7 @@ async def test_summarized_content_appended():
         )
         MockOpenAI.return_value = mock_client
 
-        agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"), tools=[big_output])
+        agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"), tools=[big_output], summarize_tool_output=True)
         await agent.run("go")
 
         tool_msg = next(m for m in agent._history if m.get("role") == "tool")

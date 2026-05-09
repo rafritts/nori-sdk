@@ -1,5 +1,6 @@
 import importlib
 import os
+from unittest.mock import patch
 
 import pytest
 
@@ -7,10 +8,11 @@ import nori.config as config_module
 from nori import Agent, Model
 
 
-def test_default_model_fallback(monkeypatch):
+def test_default_model_is_none_when_unset(monkeypatch):
     monkeypatch.delenv("NORI_MODEL", raising=False)
-    importlib.reload(config_module)
-    assert config_module.DEFAULT_MODEL == "grok-4.3"
+    with patch("dotenv.load_dotenv"):
+        importlib.reload(config_module)
+    assert config_module.DEFAULT_MODEL is None
 
 
 def test_default_model_from_env(monkeypatch):

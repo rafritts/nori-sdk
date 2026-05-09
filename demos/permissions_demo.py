@@ -60,7 +60,8 @@ async def scenario_no_restrictions():
         tools=ALL_TOOLS,
     )
     agent.summarize_tool_output = False
-    agent.on_tool_result = lambda name, result: print(f"  [{name}] → {result.strip()}")
+    agent.narration = True
+    agent.on_tool_result = lambda name, result, call_id, trace_id: print(f"  [{name}] → {result.strip()}")
 
     result = await agent.run(
         "Write 'hello from nori' to /tmp/perm_demo.txt, then read it back, then delete it."
@@ -78,7 +79,8 @@ async def scenario_allow_list():
         allow=["read_file"],
     )
     agent.summarize_tool_output = False
-    agent.on_tool_result = lambda name, result: print(f"  [{name}] → {result.strip()}")
+    agent.narration = True
+    agent.on_tool_result = lambda name, result, call_id, trace_id: print(f"  [{name}] → {result.strip()}")
 
     print("Attempting: write then read then delete...")
     try:
@@ -100,7 +102,8 @@ async def scenario_deny_list():
         deny=["delete_file"],
     )
     agent.summarize_tool_output = False
-    agent.on_tool_result = lambda name, result: print(f"  [{name}] → {result.strip()}")
+    agent.narration = True
+    agent.on_tool_result = lambda name, result, call_id, trace_id: print(f"  [{name}] → {result.strip()}")
 
     print("Attempting: write, read, then delete...")
     try:

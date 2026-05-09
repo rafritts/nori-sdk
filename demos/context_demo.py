@@ -54,6 +54,7 @@ async def scenario_running_summary():
     )
     agent.summarize_tool_output = False
     agent.running_context_summary = True
+    agent.narration = True
 
     print("Turn 1:")
     r1 = await agent.run("Fetch chapter 1 and tell me what it's about.")
@@ -84,6 +85,7 @@ async def scenario_autocompaction():
         max_turns=20,
     )
     agent.summarize_tool_output = False
+    agent.narration = True
     # Set a very small context window to force compaction quickly
     agent.max_context_chars = 2_000
 

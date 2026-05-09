@@ -16,7 +16,7 @@ class Provider(Enum):
     MINIMAX    = ("https://api.minimax.chat/v1",                              "MINIMAX_API_KEY")
     GLM        = ("https://open.bigmodel.cn/api/paas/v4/",                   "GLM_API_KEY")
     QWEN       = ("https://dashscope-intl.aliyuncs.com/compatible-mode/v1",  "QWEN_API_KEY")
-    OLLAMA     = ("http://localhost:11434/v1",                                None)
+    OLLAMA     = ("http://localhost:11434/v1",                                "OLLAMA_API_KEY")
 
     @property
     def base_url(self) -> str:

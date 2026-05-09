@@ -19,10 +19,6 @@ Architecture:
                    reasons about the request, writes the decision back to PostgreSQL,
                    and enqueues the result.
 
-Setup:
-  docker compose up -d
-  uv run python -m demos.retail_demo
-
 Environment variables (defaults match docker-compose.yml):
   RETAIL_DB_DSN     postgresql://nori:nori@localhost:5432/nori_retail
   RETAIL_REDIS_URL  redis://localhost:6379
@@ -32,6 +28,7 @@ import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspa
 import asyncio
 import json
 import os
+import subprocess
 from datetime import datetime, timedelta, timezone
 
 import asyncpg
@@ -40,6 +37,19 @@ import redis.asyncio as aioredis
 from nori import Agent, Model
 from nori.audit import AuditLogger
 from nori.tool import tool
+
+# ── Docker Compose ─────────────────────────────────────────────────────────────
+
+_COMPOSE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def compose_up() -> None:
+    subprocess.run(["docker", "compose", "up", "-d"], cwd=_COMPOSE_DIR, check=True)
+
+
+def compose_down() -> None:
+    subprocess.run(["docker", "compose", "down", "--volumes"], cwd=_COMPOSE_DIR, check=True)
+
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 
@@ -621,74 +631,81 @@ async def main() -> None:
     print("Nori retail systems demo — RMA pipeline")
     print(DIVIDER)
 
-    print("\nConnecting to services...")
-    _pool  = await connect_postgres(DB_DSN)
-    _redis = await connect_redis(REDIS_URL)
-    print("  PostgreSQL  ✓")
-    print("  Redis       ✓")
+    print("\nStarting services...")
+    compose_up()
 
-    print("\nBootstrapping schema and seed data...")
-    await _pool.execute(SCHEMA)
-    await seed(_pool)
-    await _redis.delete(INTAKE_Q, RESULTS_Q)
-    print("  Schema created, data seeded, queues cleared.\n")
+    try:
+        print("\nConnecting to services...")
+        _pool  = await connect_postgres(DB_DSN)
+        _redis = await connect_redis(REDIS_URL)
+        print("  PostgreSQL  ✓")
+        print("  Redis       ✓")
 
-    auditor = AuditLogger(AUDIT_FILE)
+        print("\nBootstrapping schema and seed data...")
+        await _pool.execute(SCHEMA)
+        await seed(_pool)
+        await _redis.delete(INTAKE_Q, RESULTS_Q)
+        print("  Schema created, data seeded, queues cleared.\n")
 
-    for i, scenario in enumerate(SCENARIOS, 1):
+        auditor = AuditLogger(AUDIT_FILE)
+
+        for i, scenario in enumerate(SCENARIOS, 1):
+            print(f"\n{DIVIDER}")
+            print(scenario["title"])
+            print(DIVIDER)
+
+            intake = make_intake_agent()
+            intake.auditor = auditor
+            intake_result = await intake.run(scenario["intake_task"])
+            print(f"\nIntakeAgent: {intake_result}")
+
+            processor = make_processor_agent()
+            processor.auditor = auditor
+            processor_result = await processor.run(
+                f"Process the next return request from the '{INTAKE_Q}' queue and record your decision."
+            )
+            print(f"\nReturnProcessor: {processor_result}")
+
+        # Final state summary
         print(f"\n{DIVIDER}")
-        print(scenario["title"])
+        print("FINAL STATE — return_requests")
         print(DIVIDER)
+        async with _pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT
+                    rr.id,
+                    c.name            AS customer,
+                    c.membership_tier AS tier,
+                    p.name            AS product,
+                    rr.agent_decision AS decision,
+                    rr.refund_amount,
+                    rr.status,
+                    rr.processed_at
+                FROM return_requests rr
+                JOIN customers  c  ON c.id  = rr.customer_id
+                JOIN order_items oi ON oi.id = rr.order_item_id
+                JOIN products   p  ON p.id  = oi.product_id
+                WHERE rr.agent_decision IS NOT NULL
+                ORDER BY rr.id DESC
+                LIMIT 10
+                """
+            )
+        print(f"  {'#':<4} {'Customer':<16} {'Tier':<8} {'Decision':<16} {'Refund':>10}  Product")
+        print(f"  {'-'*4} {'-'*16} {'-'*8} {'-'*16} {'-'*10}  {'-'*30}")
+        for row in rows:
+            refund = f"${row['refund_amount']:>9,.2f}" if row["refund_amount"] else f"{'—':>10}"
+            print(
+                f"  {row['id']:<4} {row['customer']:<16} {row['tier']:<8} "
+                f"{row['decision']:<16} {refund}  {row['product']}"
+            )
 
-        intake = make_intake_agent()
-        intake.auditor = auditor
-        intake_result = await intake.run(scenario["intake_task"])
-        print(f"\nIntakeAgent: {intake_result}")
-
-        processor = make_processor_agent()
-        processor.auditor = auditor
-        processor_result = await processor.run(
-            f"Process the next return request from the '{INTAKE_Q}' queue and record your decision."
-        )
-        print(f"\nReturnProcessor: {processor_result}")
-
-    # Final state summary
-    print(f"\n{DIVIDER}")
-    print("FINAL STATE — return_requests")
-    print(DIVIDER)
-    async with _pool.acquire() as conn:
-        rows = await conn.fetch(
-            """
-            SELECT
-                rr.id,
-                c.name            AS customer,
-                c.membership_tier AS tier,
-                p.name            AS product,
-                rr.agent_decision AS decision,
-                rr.refund_amount,
-                rr.status,
-                rr.processed_at
-            FROM return_requests rr
-            JOIN customers  c  ON c.id  = rr.customer_id
-            JOIN order_items oi ON oi.id = rr.order_item_id
-            JOIN products   p  ON p.id  = oi.product_id
-            WHERE rr.agent_decision IS NOT NULL
-            ORDER BY rr.id DESC
-            LIMIT 10
-            """
-        )
-    print(f"  {'#':<4} {'Customer':<16} {'Tier':<8} {'Decision':<16} {'Refund':>10}  Product")
-    print(f"  {'-'*4} {'-'*16} {'-'*8} {'-'*16} {'-'*10}  {'-'*30}")
-    for row in rows:
-        refund = f"${row['refund_amount']:>9,.2f}" if row["refund_amount"] else f"{'—':>10}"
-        print(
-            f"  {row['id']:<4} {row['customer']:<16} {row['tier']:<8} "
-            f"{row['decision']:<16} {refund}  {row['product']}"
-        )
-
-    auditor.close()
-    await _pool.close()
-    await _redis.aclose()
+        auditor.close()
+        await _pool.close()
+        await _redis.aclose()
+    finally:
+        print("\nStopping services...")
+        compose_down()
 
 
 asyncio.run(main())

@@ -14,7 +14,7 @@ import json
 import logging
 import logging.handlers
 
-from nori import Agent
+from nori import Agent, Model
 from nori.audit import AuditLogger
 from nori.tool import tool
 
@@ -62,6 +62,7 @@ def get_load() -> str:
 async def main():
     agent = Agent(
         name="ObservabilityDemo",
+        model=Model(id="grok-4.3"),
         system_prompt="You are a system info agent. Use your tools to answer questions.",
         tools=[get_system_info, get_uptime, get_load],
     )

@@ -17,7 +17,7 @@ import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspa
 
 import asyncio
 
-from nori import Agent
+from nori import Agent, Model
 from nori.tool import tool
 
 DIVIDER = "=" * 60
@@ -49,6 +49,7 @@ async def scenario_running_summary():
 
     agent = Agent(
         name="BookAgent",
+        model=Model(id="grok-4.3"),
         system_prompt="You are a literary assistant helping a reader track a story.",
         tools=[get_chapter],
     )
@@ -79,6 +80,7 @@ async def scenario_autocompaction():
 
     agent = Agent(
         name="CompactAgent",
+        model=Model(id="grok-4.3"),
         system_prompt="You are a data agent. Fetch chapters as requested.",
         tools=[get_chapter],
         max_turns=20,

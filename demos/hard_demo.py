@@ -17,7 +17,7 @@ import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspa
 import asyncio
 import textwrap
 
-from nori import Agent
+from nori import Agent, Model
 from nori.tools.bash import Bash
 from nori.tools.file_edit import FileEdit
 from nori.tools.file_search import FileSearch
@@ -126,6 +126,7 @@ async def main() -> None:
 
     agent = Agent(
         name="BugHunter",
+        model=Model(id="grok-4.3"),
         system_prompt=SYSTEM_PROMPT,
         tools=[Bash, FileEdit, FileSearch],
         max_turns=25,

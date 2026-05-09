@@ -18,7 +18,7 @@ import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspa
 import asyncio
 import json
 
-from nori import Agent
+from nori import Agent, Model
 from nori.tool import tool
 
 DIVIDER = "=" * 60
@@ -97,6 +97,7 @@ async def run_agent():
 
     agent = Agent(
         name="ToolDemoAgent",
+        model=Model(id="grok-4.3"),
         system_prompt="You are a helpful assistant with access to weather, metrics, and stock tools.",
         tools=[get_tokyo_weather, get_raw_metrics, fetch_price],
     )

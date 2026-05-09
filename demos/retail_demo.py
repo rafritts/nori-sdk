@@ -37,7 +37,7 @@ from datetime import datetime, timedelta, timezone
 import asyncpg
 import redis.asyncio as aioredis
 
-from nori import Agent
+from nori import Agent, Model
 from nori.audit import AuditLogger
 from nori.tool import tool
 
@@ -509,6 +509,7 @@ async def dequeue(queue: str) -> str:
 def make_intake_agent() -> Agent:
     agent = Agent(
         name="IntakeAgent",
+        model=Model(id="grok-4.3"),
         system_prompt=(
             "You are a retail returns intake specialist. When given a return request, you must:\n"
             "1. Verify the customer exists.\n"
@@ -532,6 +533,7 @@ def make_intake_agent() -> Agent:
 def make_processor_agent() -> Agent:
     agent = Agent(
         name="ReturnProcessor",
+        model=Model(id="grok-4.3"),
         system_prompt=(
             "You are a retail return authorization processor. You make binding decisions on return requests.\n"
             "For each request:\n"

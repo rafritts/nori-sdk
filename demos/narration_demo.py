@@ -14,7 +14,7 @@ import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspa
 
 import asyncio
 
-from nori import Agent
+from nori import Agent, Model
 from nori.tool import tool
 
 DIVIDER = "=" * 60
@@ -55,6 +55,7 @@ async def scenario_default_narration():
 
     agent = Agent(
         name="OpsAgent",
+        model=Model(id="grok-4.3"),
         system_prompt="You are an ops agent. Check services and report issues.",
         tools=[check_service, get_service_logs],
     )
@@ -75,6 +76,7 @@ async def scenario_custom_callback():
 
     agent = Agent(
         name="OpsAgent",
+        model=Model(id="grok-4.3"),
         system_prompt="You are an ops agent. Check services and report issues.",
         tools=[check_service, get_service_logs],
     )
@@ -91,6 +93,7 @@ async def scenario_narrator_prefix():
 
     infra = Agent(
         name="InfraAgent",
+        model=Model(id="grok-4.3"),
         system_prompt="You are an infrastructure agent.",
         tools=[check_service],
     )
@@ -99,6 +102,7 @@ async def scenario_narrator_prefix():
 
     app = Agent(
         name="AppAgent",
+        model=Model(id="grok-4.3"),
         system_prompt="You are an application agent.",
         tools=[get_service_logs],
     )

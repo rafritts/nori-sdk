@@ -13,7 +13,7 @@ import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspa
 
 import asyncio
 
-from nori import Agent, Permissions
+from nori import Agent, Model, Permissions
 from nori.exceptions import PermissionError
 from nori.tool import tool
 
@@ -56,6 +56,7 @@ async def scenario_no_restrictions():
     section("SCENARIO 1 — No restrictions (all tools available)")
     agent = Agent(
         name="UnrestrictedAgent",
+        model=Model(id="grok-4.3"),
         system_prompt="You are a file agent. Use your tools to complete tasks.",
         tools=ALL_TOOLS,
     )
@@ -73,6 +74,7 @@ async def scenario_allow_list():
     section("SCENARIO 2 — Allow list: only 'read_file' permitted")
     agent = Agent(
         name="ReadOnlyAgent",
+        model=Model(id="grok-4.3"),
         system_prompt="You are a file agent. Use your tools to complete tasks.",
         tools=ALL_TOOLS,
         permissions=Permissions(allow=["read_file"]),
@@ -95,6 +97,7 @@ async def scenario_deny_list():
     section("SCENARIO 3 — Deny list: 'delete_file' blocked")
     agent = Agent(
         name="NoDeleteAgent",
+        model=Model(id="grok-4.3"),
         system_prompt="You are a file agent. Use your tools to complete tasks.",
         tools=ALL_TOOLS,
         permissions=Permissions(deny=["delete_file"]),

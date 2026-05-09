@@ -13,7 +13,7 @@ import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspa
 
 import asyncio
 
-from nori import Agent
+from nori import Agent, Model
 from nori.tool import tool
 from nori.tools.bash import Bash
 
@@ -39,6 +39,7 @@ def web_lookup(query: str) -> str:
 
 researcher = Agent(
     name="Researcher",
+    model=Model(id="grok-4.3"),
     description="Looks up factual information about programming languages.",
     system_prompt="You are a research agent. Use web_lookup to find facts and return them clearly.",
     tools=[web_lookup],
@@ -61,6 +62,7 @@ def word_count(text: str) -> str:
 
 writer = Agent(
     name="Writer",
+    model=Model(id="grok-4.3"),
     description="Formats and edits content into polished markdown documents.",
     system_prompt="You are a writing agent. Format content clearly and check your word counts.",
     tools=[format_as_markdown, word_count],
@@ -77,6 +79,7 @@ async def main():
 
     orchestrator = Agent(
         name="Orchestrator",
+        model=Model(id="grok-4.3"),
         system_prompt=(
             "You are an orchestrator. You have access to a Researcher and a Writer agent. "
             "Delegate research to Researcher and formatting to Writer. "

@@ -49,6 +49,7 @@ async def scenario_healthy():
 
     agent = Agent(
         name="RecordAgent",
+        model=Model(id="grok-4.3"),
         system_prompt="You are a data agent. Fetch and summarize records efficiently.",
         tools=[fetch_record, summarize_records],
         checkpoint=Checkpoint(every=3, scrutiny=CheckpointScrutiny.MODERATE),
@@ -80,6 +81,7 @@ async def scenario_spin():
 
     agent = Agent(
         name="SpinAgent",
+        model=Model(id="grok-4.3"),
         system_prompt=(
             "You are a diagnostic agent. You must keep investigating until you reach "
             "a definitive conclusion. Do not stop until you are 100% certain."

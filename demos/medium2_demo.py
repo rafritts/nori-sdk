@@ -1,7 +1,7 @@
 import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import asyncio
 
-from nori import Agent
+from nori import Agent, Model
 from nori.audit import AuditLogger
 from nori.tools.bash import Bash
 
@@ -31,6 +31,7 @@ counting the words yourself with shell tools
 async def main():
     agent = Agent(
         name="Medium2Agent",
+        model=Model(id="grok-4.3"),
         system_prompt=SYSTEM_PROMPT,
         tools=[Bash],
         max_turns=30,

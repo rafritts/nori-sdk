@@ -15,11 +15,10 @@ class Model:
         if not self.id:
             raise ValueError("Model.id must be a non-empty string.")
         self.api_key = self.api_key or config.API_KEY
-        self.base_url = self.base_url or config.BASE_URL
         if self.api_key is None and self.base_url is None:
             raise ValueError(
                 "Model requires either api_key or base_url. "
-                "Set one directly or via NORI_API_KEY / NORI_BASE_URL."
+                "Pass one directly or set NORI_API_KEY in the environment."
             )
         if self.context_window <= 0:
             raise ValueError("Model.context_window must be a positive integer.")

@@ -24,7 +24,7 @@ import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspa
 import asyncio
 import textwrap
 
-from nori import Agent
+from nori import Agent, Model
 from nori.audit import AuditLogger
 from nori.tool import tool
 
@@ -94,6 +94,7 @@ async def main() -> None:
 
     security_reviewer = Agent(
         name="SecurityReviewer",
+        model=Model(id="grok-4.3"),
         description="Reviews code changes for security vulnerabilities.",
         system_prompt=(
             "You are a security engineer. Read the diff and identify security issues: "
@@ -106,6 +107,7 @@ async def main() -> None:
 
     performance_reviewer = Agent(
         name="PerformanceReviewer",
+        model=Model(id="grok-4.3"),
         description="Reviews code changes for performance issues.",
         system_prompt=(
             "You are a performance engineer. Read the diff and identify performance issues: "
@@ -118,6 +120,7 @@ async def main() -> None:
 
     correctness_reviewer = Agent(
         name="CorrectnessReviewer",
+        model=Model(id="grok-4.3"),
         description="Reviews code changes for logic errors and correctness bugs.",
         system_prompt=(
             "You are a correctness-focused engineer. Read the diff and identify logic errors: "
@@ -130,6 +133,7 @@ async def main() -> None:
 
     orchestrator = Agent(
         name="Orchestrator",
+        model=Model(id="grok-4.3"),
         system_prompt=(
             "You are a lead engineer running a code review. "
             "You have three specialist reviewers: SecurityReviewer, PerformanceReviewer, "

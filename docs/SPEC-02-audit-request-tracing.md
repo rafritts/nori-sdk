@@ -1,12 +1,12 @@
 # SPEC-02: Audit & Request Tracing
 
-Full distributed request tracing for Nori agents, modeled on Spring Cloud Sleuth/Zipkin (B3 propagation). Every logical request carries a single `trace_id` from top to bottom. Every unit of work — agent runs and tool invocations — is a **span** with its own `span_id` and a `parent_span_id` pointing to whoever created it.
+Full distributed request tracing for Nori agents, modeled on Spring Cloud Sleuth/Zipkin (B3 propagation). Sensible defaults, opt-in/opt-out where needed.
 
 ---
 
 ## Motivation
 
-Parallel tool calls produce interleaved narration output with no way to correlate a "Started" line with its "Result" line. Orchestrator/sub-agent hierarchies produce audit logs with no way to reconstruct which sub-calls belong to which parent run. This spec fixes both.
+Parallel tool calls produce interleaved narration output with no way to correlate a "Started" line with its "Result" line. Orchestrator/sub-agent hierarchies produce audit logs with no way to reconstruct which sub-calls belong to which parent run. This spec fixes both while keeping narration clean for humans and audit rich for machines.
 
 ---
 
@@ -14,54 +14,71 @@ Parallel tool calls produce interleaved narration output with no way to correlat
 
 | Concept | Type | Scope | Purpose |
 |---|---|---|---|
-| `trace_id` | UUID4 | Per top-level `agent.run()` | Immutable. Inherited by all sub-agents and tool spans within one logical request. |
-| `span_id` | UUID4 | Per `agent.run()` or tool invocation | Unique ID for this unit of work. |
-| `parent_span_id` | UUID4 or None | Per span | Points to the span that created this one. `None` for the root span. |
-| `call_id` | 4-char hex | Per tool invocation | Short human-scannable alias for `span_id`. Terminal readability only. |
+| `trace_id` | Full UUID4 | Per top-level `agent.run()` | Immutable. Inherited by all sub-agents and tool spans. The thing you search by in Splunk/Datadog. |
+| `span_id` | 8-char hex | Per `agent.run()` or tool invocation | Links parent→child within a trace. Short because it's always scoped to a known `trace_id`. |
+| `parent_span_id` | 8-char hex or None | Per span | Points to the span that created this one. `null` for the root. |
+| `call_id` | 4-char hex | Per tool invocation | `span_id[:4]`. Display alias only — for human-readable terminal correlation. |
 
 ### Span Tree Example
 
 ```
-trace_id=406ff458
+trace_id=406ff458-840f-4a30-bee1-25e5d71fa1f6
 │
-├─ span_id=aa01  parent=null          Orchestrator.run()
-│   ├─ span_id=bb02  parent=aa01      tool_call: Researcher (as tool)
-│   │   └─ span_id=cc03  parent=bb02  Researcher.run()
-│   │       └─ span_id=dd04  parent=cc03  tool_call: web_lookup
-│   └─ span_id=ee05  parent=aa01      tool_call: Writer (as tool)
-│       └─ span_id=ff06  parent=ee05  Writer.run()
-│           └─ span_id=gg07  parent=ff06  tool_call: format_as_markdown
+├─ span_id=aa01b3f2  parent=null            Orchestrator.run()
+│   ├─ span_id=bb02c4e1  parent=aa01b3f2    tool_call: Researcher
+│   │   └─ span_id=cc03d5f0  parent=bb02c4e1   Researcher.run()
+│   │       └─ span_id=dd04e6a9  parent=cc03d5f0  tool_call: web_lookup
+│   └─ span_id=ee05f7b8  parent=aa01b3f2    tool_call: Writer
+│       └─ span_id=ff06a8c7  parent=ee05f7b8   Writer.run()
+│           └─ span_id=gg07b9d6  parent=ff06a8c7  tool_call: format_as_markdown
 ```
 
-`trace_id` flows unchanged through every level. Each `agent.run()` and each tool invocation mints a new `span_id`. The `parent_span_id` is the `span_id` of whoever initiated the call.
+`trace_id` flows unchanged through every level. Each `agent.run()` and each tool invocation mints a new `span_id`. `call_id` is `span_id[:4]`.
 
 ---
 
-## Narration Format
+## Narration
 
-### Current
+Narration is a UX feature — human-facing, terminal output. Trace IDs do not belong here by default.
+
+### Default behavior
 ```
-fetch_price[User wants current price of AAPL stock]
-  └─ AAPL: $213.49
+fetch_price[User wants price of AAPL]
 ```
 
-### New
+Single tool call: no call_id, no trace ID — clean.
+
+### Parallel turn (auto call_id)
+When a turn has multiple tool calls, `call_id` is automatically injected:
 ```
-fetch_price-agh7[406ff458-840f-4a30-bee1-25e5d71fa1f6][Started: User wants current price of AAPL stock]
+fetch_price-agh7[User wants price of AAPL] - Started
+get_weather-b3x1[User wants weather in Austin] - Started
+fetch_price-agh7[Result: AAPL: $213.49]
+get_weather-b3x1[Result: Austin: Sunny, 75°F]
+```
+
+Single calls stay clean. Parallel calls get correlation automatically — no config needed.
+
+### Opt-in / opt-out
+
+| Setting | Type | Default | Effect |
+|---|---|---|---|
+| `narration_call_id` | `bool` | `True` | Auto-inject `call_id` on parallel turns |
+| `narration_trace_id` | `bool` | `False` | Opt-in: always show `trace_id` in narration |
+
+With `narration_trace_id=True`:
+```
+fetch_price-agh7[406ff458-840f-4a30-bee1-25e5d71fa1f6][Started: User wants price of AAPL]
 fetch_price-agh7[406ff458-840f-4a30-bee1-25e5d71fa1f6][Result: AAPL: $213.49]
 ```
 
-Rules:
-- `call_id` is a 4-char lowercase hex string — short alias for the tool span's `span_id`
-- The UUID shown is `trace_id` — consistent across the whole request
-- Result is a single flat line — no `└─` decoration, no multiline
-- Newlines in result content are replaced with ` | ` for display
+Result lines are always flat — no `└─` decoration, no multiline. Newlines in result content replaced with ` | `.
 
 ---
 
-## Audit Stream Format
+## Audit Stream
 
-All audit events carry `trace_id`, `span_id`, and `parent_span_id`. Tool events also carry `call_id`.
+Audit is machine-facing. Full B3 tracing on every event, always — when an auditor is attached. No per-field toggles.
 
 ### agent_start
 ```json
@@ -69,7 +86,7 @@ All audit events carry `trace_id`, `span_id`, and `parent_span_id`. Tool events 
   "time": "2026-05-09T01:14:12Z",
   "event": "agent_start",
   "trace_id": "406ff458-840f-4a30-bee1-25e5d71fa1f6",
-  "span_id": "9c3a1d22-...",
+  "span_id": "aa01b3f2",
   "parent_span_id": null,
   "agent": "Orchestrator",
   "prompt": "Write a comparison of Python, Rust, and Go."
@@ -82,9 +99,9 @@ All audit events carry `trace_id`, `span_id`, and `parent_span_id`. Tool events 
   "time": "2026-05-09T01:14:16Z",
   "event": "tool_call",
   "trace_id": "406ff458-840f-4a30-bee1-25e5d71fa1f6",
-  "span_id": "bb02...",
-  "parent_span_id": "aa01...",
-  "call_id": "agh7",
+  "span_id": "bb02c4e1",
+  "parent_span_id": "aa01b3f2",
+  "call_id": "bb02",
   "agent": "Orchestrator",
   "name": "fetch_price",
   "args": {"ticker": "AAPL", "reason": "User wants current price of AAPL stock"}
@@ -97,9 +114,9 @@ All audit events carry `trace_id`, `span_id`, and `parent_span_id`. Tool events 
   "time": "2026-05-09T01:14:16Z",
   "event": "tool_result",
   "trace_id": "406ff458-840f-4a30-bee1-25e5d71fa1f6",
-  "span_id": "bb02...",
-  "parent_span_id": "aa01...",
-  "call_id": "agh7",
+  "span_id": "bb02c4e1",
+  "parent_span_id": "aa01b3f2",
+  "call_id": "bb02",
   "agent": "Orchestrator",
   "name": "fetch_price",
   "result": "AAPL: $213.49"
@@ -112,9 +129,9 @@ All audit events carry `trace_id`, `span_id`, and `parent_span_id`. Tool events 
   "time": "2026-05-09T01:14:16Z",
   "event": "tool_error",
   "trace_id": "406ff458-840f-4a30-bee1-25e5d71fa1f6",
-  "span_id": "bb02...",
-  "parent_span_id": "aa01...",
-  "call_id": "agh7",
+  "span_id": "bb02c4e1",
+  "parent_span_id": "aa01b3f2",
+  "call_id": "bb02",
   "agent": "Orchestrator",
   "name": "fetch_price",
   "error": "Connection refused"
@@ -127,7 +144,7 @@ All audit events carry `trace_id`, `span_id`, and `parent_span_id`. Tool events 
   "time": "2026-05-09T01:14:20Z",
   "event": "agent_end",
   "trace_id": "406ff458-840f-4a30-bee1-25e5d71fa1f6",
-  "span_id": "9c3a1d22-...",
+  "span_id": "aa01b3f2",
   "parent_span_id": null,
   "agent": "Orchestrator",
   "result": "AAPL is currently $213.49.",
@@ -142,38 +159,34 @@ All audit events carry `trace_id`, `span_id`, and `parent_span_id`. Tool events 
 
 | Scenario | trace_id | span_id | parent_span_id |
 |---|---|---|---|
-| Top-level `agent.run()` | New UUID4 | New UUID4 | `null` |
-| Sub-agent `agent.run()` (called as tool) | Inherited from parent | New UUID4 | Calling agent's `span_id` |
-| Tool invocation | Inherited | New UUID4 | Enclosing `agent.run()` span_id |
+| Top-level `agent.run()` | New UUID4 | New 8-char hex | `null` |
+| Sub-agent `agent.run()` (called as tool) | Inherited | New 8-char hex | Calling agent's `span_id` |
+| Tool invocation | Inherited | New 8-char hex | Enclosing `agent.run()` `span_id` |
 
 ---
 
 ## API Changes
 
-### `Agent`
+### `Agent` — new attributes
 
-| Attribute | Type | Description |
-|---|---|---|
-| `trace_id` | `str \| None` | Inherited or generated at `run()`. Read-only property. |
-| `span_id` | `str \| None` | Generated at start of each `run()`. Read-only property. |
-| `parent_span_id` | `str \| None` | Set by orchestrator before calling sub-agent. |
+| Attribute | Type | Default | Description |
+|---|---|---|---|
+| `narration_call_id` | `bool` | `True` | Auto-inject `call_id` on parallel turns |
+| `narration_trace_id` | `bool` | `False` | Always show `trace_id` in narration |
+| `trace_id` | `str \| None` | `None` | Read-only. Set at start of `run()`. |
+| `span_id` | `str \| None` | `None` | Read-only. Set at start of `run()`. |
+| `parent_span_id` | `str \| None` | `None` | Set by orchestrator before calling sub-agent. |
 
-### `_narrate(tool_name, reason, call_id)`
-Gains `call_id`. Emits:
-```
-{prefix}{tool_name}-{call_id}[{trace_id}][Started: {reason}]
-```
-
-### `on_narration(text)`
-Signature unchanged. Receives the fully formatted string.
+### `_narrate(tool_name, reason, call_id, is_parallel)`
+- If `is_parallel` and `narration_call_id`: inject `call_id`
+- If `narration_trace_id`: inject `trace_id`
+- Emits Started line
 
 ### `on_tool_result(name, result, call_id, trace_id)`
-Gains `call_id` and `trace_id`. Default handler emits:
-```
-{name}-{call_id}[{trace_id}][Result: {result_single_line}]
-```
+- Gains `call_id` and `trace_id`
+- Default handler emits Result line using same rules as narration
 
-### `AuditLogger`
+### `AuditLogger` — updated signatures
 
 | Method | Signature |
 |---|---|
@@ -188,19 +201,20 @@ Gains `call_id` and `trace_id`. Default handler emits:
 ## Implementation Steps
 
 ### Step 1 — ID generation
-- Generate `trace_id` (UUID4) at top of `agent.run()` — inherit from caller if provided
-- Generate `span_id` (UUID4) at top of `agent.run()`
-- Generate tool `span_id` + derive `call_id` (first 4 hex chars of span_id) at top of `_invoke_tool()`
+- Generate `trace_id` (UUID4) at top of `agent.run()` — inherit if provided by caller
+- Generate `span_id` (8-char hex from `uuid4().hex[:8]`) at top of `agent.run()`
+- Generate tool `span_id` per `_invoke_tool()`, derive `call_id` as `span_id[:4]`
 - Expose `trace_id`, `span_id` as read-only properties
 
 ### Step 2 — Narration format update
-- Update `_narrate()` to accept `call_id`, embed `trace_id`
-- Update `_invoke_tool()` to pass `call_id` to `_narrate()`
-- Update default narration output to new bracket format
+- Add `narration_call_id = True` and `narration_trace_id = False` to `Agent.__init__`
+- Update `_narrate()` to accept `call_id` and `is_parallel`
+- Update `_execute_tools()` to pass `is_parallel = len(tool_calls) > 1`
+- Emit Started/Result lines per narration rules above
 
-### Step 3 — `on_tool_result` signature update
-- Add `call_id` and `trace_id` to callback signature
-- Update default handler: flat single-line, new bracket format
+### Step 3 — `on_tool_result` update
+- New signature: `(name, result, call_id, trace_id)`
+- Default handler applies same call_id/trace_id rules as narration
 - Update all demo lambdas
 
 ### Step 4 — Audit stream update
@@ -209,22 +223,26 @@ Gains `call_id` and `trace_id`. Default handler emits:
 
 ### Step 5 — Trace propagation to sub-agents
 - In `Agent.__call__()`, pass `self._trace_id` and `self._span_id` to sub-agent
-- Sub-agent sets `trace_id = inherited`, `parent_span_id = caller's span_id`, generates new `span_id`
+- Sub-agent sets `trace_id = inherited`, `parent_span_id = caller span_id`, mints new `span_id`
 
 ### Step 6 — Unit tests
-- `test_trace_id_generated_at_run` — UUID4 generated per top-level run
-- `test_span_id_generated_at_run` — unique span_id per run
-- `test_trace_id_inherited_by_sub_agent` — sub-agent shares trace_id with parent
-- `test_parent_span_id_set_on_sub_agent` — parent's span_id is sub-agent's parent_span_id
-- `test_call_id_in_narration` — 4-char call_id appears in narration string
-- `test_trace_id_in_narration` — trace_id appears in narration string
+- `test_trace_id_generated_at_run` — UUID4 format
+- `test_span_id_is_8_char_hex`
+- `test_call_id_is_first_4_chars_of_span_id`
+- `test_trace_id_inherited_by_sub_agent`
+- `test_parent_span_id_set_on_sub_agent`
+- `test_call_id_absent_on_single_tool_call` — no call_id when only one tool called
+- `test_call_id_present_on_parallel_tool_calls`
+- `test_narration_trace_id_opt_in`
+- `test_narration_call_id_opt_out`
 - `test_on_tool_result_receives_call_id_and_trace_id`
-- `test_audit_events_carry_trace_and_span_ids`
-- `test_tool_span_parent_is_agent_span`
+- `test_audit_events_carry_full_b3_fields`
+- `test_tool_span_parent_is_agent_span_id`
 
 ### Step 7 — Update demos
 - Remove custom `on_tool_result` lambdas — default output is now correct
-- Update `observability_demo.py` and `agent_as_tool_demo.py` to show trace propagation
+- Update `observability_demo.py` to showcase narration vs audit formats
+- Update `agent_as_tool_demo.py` to show trace propagation across agents
 
 ---
 

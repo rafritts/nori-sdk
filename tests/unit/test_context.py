@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from nori import Agent
+from nori import Agent, Model
 from nori.tool import tool
 
 
@@ -29,7 +29,7 @@ def make_agent_with_mock(side_effects, **kwargs):
         mock_client = MagicMock()
         mock_client.chat.completions.create = AsyncMock(side_effect=side_effects)
         MockOpenAI.return_value = mock_client
-        agent = Agent(name="T", model="grok-4.3", **kwargs)
+        agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"), **kwargs)
         return agent, mock_client
 
 
@@ -40,7 +40,7 @@ async def test_disabled_by_default():
             return_value=MagicMock(choices=[MagicMock(message=make_text_message())])
         )
         MockOpenAI.return_value = mock_client
-        agent = Agent(name="T", model="grok-4.3")
+        agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"))
         await agent.run("hi")
         assert not any(m.get("_marker") == "__running_summary__" for m in agent._history)
 
@@ -53,7 +53,7 @@ async def test_summary_injected_at_top_of_history():
         mock_client.chat.completions.create = AsyncMock(side_effect=[main_resp, sum_resp])
         MockOpenAI.return_value = mock_client
 
-        agent = Agent(name="T", model="grok-4.3")
+        agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"))
         agent.running_context_summary = True
         await agent.run("do something")
 
@@ -70,7 +70,7 @@ async def test_summary_role_is_user():
         mock_client.chat.completions.create = AsyncMock(side_effect=[main_resp, sum_resp])
         MockOpenAI.return_value = mock_client
 
-        agent = Agent(name="T", model="grok-4.3")
+        agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"))
         agent.running_context_summary = True
         await agent.run("go")
 
@@ -86,7 +86,7 @@ async def test_warning_injected_at_70_percent():
         )
         MockOpenAI.return_value = mock_client
 
-        agent = Agent(name="T", model="grok-4.3")
+        agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"))
         agent.max_context_chars = 100
         # Fill history to > 70% of 100 chars
         agent._history = [{"role": "user", "content": "x" * 75}]
@@ -103,7 +103,7 @@ async def test_warning_not_injected_twice():
         )
         MockOpenAI.return_value = mock_client
 
-        agent = Agent(name="T", model="grok-4.3")
+        agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"))
         agent.max_context_chars = 100
         agent._history = [{"role": "user", "content": "x" * 75}]
         await agent.run("hi")
@@ -122,7 +122,7 @@ async def test_compaction_fires_at_85_percent():
         )
         MockOpenAI.return_value = mock_client
 
-        agent = Agent(name="T", model="grok-4.3")
+        agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"))
         agent.max_context_chars = 100
         agent._history = [{"role": "user", "content": "x" * 90}]
         await agent.run("hi")
@@ -142,7 +142,7 @@ async def test_summary_updates_each_run():
         ])
         MockOpenAI.return_value = mock_client
 
-        agent = Agent(name="T", model="grok-4.3")
+        agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"))
         agent.running_context_summary = True
         await agent.run("first")
         await agent.run("second")

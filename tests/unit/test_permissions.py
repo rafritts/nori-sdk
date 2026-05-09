@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from nori import Agent
+from nori import Agent, Model, Permissions
 from nori.exceptions import PermissionError
 from nori.permissions import PermissionGuard
 from nori.tool import tool
@@ -46,8 +46,8 @@ def make_text_message(content="Done."):
 
 
 def test_allow_and_deny_raises_at_construction():
-    with pytest.raises(RuntimeError):
-        Agent(name="T", model="grok-4.3", allow=["bash"], deny=["file_edit"])
+    with pytest.raises((RuntimeError, ValueError)):
+        Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"), permissions=Permissions(allow=["bash"], deny=["file_edit"]))
 
 
 def test_denied_tool_raises_permission_error():
@@ -94,9 +94,9 @@ async def test_denied_tool_raises_in_agent_loop():
         MockOpenAI.return_value = mock_client
 
         agent = Agent(
-            name="T", model="grok-4.3",
+            name="T", model=Model(id="grok-4.3", api_key="test-key"),
             tools=[bash_tool],
-            deny=["bash_tool"],
+            permissions=Permissions(deny=["bash_tool"]),
         )
         with pytest.raises(PermissionError):
             await agent.run("go")

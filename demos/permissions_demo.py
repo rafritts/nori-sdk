@@ -13,7 +13,7 @@ import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspa
 
 import asyncio
 
-from nori import Agent
+from nori import Agent, Permissions
 from nori.exceptions import PermissionError
 from nori.tool import tool
 
@@ -75,7 +75,7 @@ async def scenario_allow_list():
         name="ReadOnlyAgent",
         system_prompt="You are a file agent. Use your tools to complete tasks.",
         tools=ALL_TOOLS,
-        allow=["read_file"],
+        permissions=Permissions(allow=["read_file"]),
     )
     agent.narration = True
     agent.on_tool_result = lambda name, result, call_id, trace_id: print(f"  [{name}] → {result.strip()}")
@@ -97,7 +97,7 @@ async def scenario_deny_list():
         name="NoDeleteAgent",
         system_prompt="You are a file agent. Use your tools to complete tasks.",
         tools=ALL_TOOLS,
-        deny=["delete_file"],
+        permissions=Permissions(deny=["delete_file"]),
     )
     agent.narration = True
     agent.on_tool_result = lambda name, result, call_id, trace_id: print(f"  [{name}] → {result.strip()}")

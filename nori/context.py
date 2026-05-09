@@ -1,14 +1,9 @@
 from dataclasses import dataclass
-from enum import Enum
 from pathlib import Path
 
 from openai import AsyncOpenAI
 
-
-class ContextRole(Enum):
-    SYSTEM = "system"
-    USER = "user"
-    ASSISTANT = "assistant"
+from nori.enums import ContextRole
 
 
 @dataclass

@@ -1,7 +1,7 @@
 import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import asyncio
 
-from nori import Agent
+from nori import Agent, ContextWindow, Model
 from nori.audit import AuditLogger
 from nori.tools.bash import Bash
 
@@ -29,11 +29,11 @@ Do each step explicitly and show all output.
 async def main():
     agent = Agent(
         name="DemoAgent",
+        model=Model(id="grok-4.3", context_window=ContextWindow.K24),
         system_prompt=SYSTEM_PROMPT,
         tools=[Bash],
         max_turns=20,
     )
-    agent.context_length = 24000
     agent.narration = True
     agent.auditor = AuditLogger("logs/easy_demo.audit.log")
 

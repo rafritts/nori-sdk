@@ -12,8 +12,7 @@ import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspa
 
 import asyncio
 
-from nori import Agent
-from nori.anti_spin import CheckpointScrutiny
+from nori import Agent, Checkpoint, CheckpointScrutiny, Model
 from nori.exceptions import AntiSpinTerminated
 from nori.tool import tool
 
@@ -52,8 +51,7 @@ async def scenario_healthy():
         name="RecordAgent",
         system_prompt="You are a data agent. Fetch and summarize records efficiently.",
         tools=[fetch_record, summarize_records],
-        checkpoint=3,
-        checkpoint_scrutiny=CheckpointScrutiny.MODERATE,
+        checkpoint=Checkpoint(every=3, scrutiny=CheckpointScrutiny.MODERATE),
     )
     agent.narration = True
 
@@ -87,8 +85,7 @@ async def scenario_spin():
             "a definitive conclusion. Do not stop until you are 100% certain."
         ),
         tools=[investigate],
-        checkpoint=3,
-        checkpoint_scrutiny=CheckpointScrutiny.STRICT,
+        checkpoint=Checkpoint(every=3, scrutiny=CheckpointScrutiny.STRICT),
         max_turns=20,
     )
     agent.narration = True

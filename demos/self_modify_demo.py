@@ -14,7 +14,7 @@ import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspa
 
 import asyncio
 
-from nori import Agent
+from nori import Agent, SelfModify
 from nori.tool import tool
 
 DIVIDER = "=" * 60
@@ -34,7 +34,7 @@ async def scenario_custodian():
     agent = Agent(
         name="CustodianAgent",
         system_prompt="You are a generic assistant.",
-        self_custodian=True,
+        self_modify=SelfModify.CUSTODIAN,
     )
     agent.narration = True
 
@@ -67,7 +67,7 @@ async def scenario_modify():
             "use remove_tool to do so, then confirm."
         ),
         tools=[celsius_to_fahrenheit],
-        self_modify=True,
+        self_modify=SelfModify.MODIFY,
     )
     agent.narration = True
 
@@ -93,7 +93,7 @@ async def scenario_mutation():
             "You are a resourceful agent. If a task is simple, switch to a lighter "
             "model to save cost, then complete the task."
         ),
-        self_mutation=True,
+        self_modify=SelfModify.MUTATION,
     )
     agent.narration = True
 

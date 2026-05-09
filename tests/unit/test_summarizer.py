@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from nori import Agent
+from nori import Agent, Model
 from nori.tool import tool
 
 
@@ -64,7 +64,7 @@ async def test_reason_passed_as_hint():
         )
         MockOpenAI.return_value = mock_client
 
-        agent = Agent(name="T", model="grok-4.3", tools=[big_output])
+        agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"), tools=[big_output])
         await agent.run("go")
 
         # Second call is the summarizer
@@ -86,7 +86,7 @@ async def test_summarized_content_appended():
         )
         MockOpenAI.return_value = mock_client
 
-        agent = Agent(name="T", model="grok-4.3", tools=[big_output])
+        agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"), tools=[big_output])
         await agent.run("go")
 
         tool_msg = next(m for m in agent._history if m.get("role") == "tool")
@@ -105,7 +105,7 @@ async def test_summarize_output_false_skips_summarizer():
         )
         MockOpenAI.return_value = mock_client
 
-        agent = Agent(name="T", model="grok-4.3", tools=[raw_tool])
+        agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"), tools=[raw_tool])
         await agent.run("go")
 
         # Only 2 calls: main loop + final response (no summarizer call)
@@ -126,7 +126,7 @@ async def test_agent_level_summarize_false_skips_all():
         )
         MockOpenAI.return_value = mock_client
 
-        agent = Agent(name="T", model="grok-4.3", tools=[big_output])
+        agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"), tools=[big_output])
         await agent.run("go")
 
         assert mock_client.chat.completions.create.call_count == 2

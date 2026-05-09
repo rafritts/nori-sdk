@@ -1,15 +1,21 @@
-from enum import Enum
+from dataclasses import dataclass
 
 from openai import AsyncOpenAI
 
 from nori.context import inject_summary
+from nori.enums import CheckpointScrutiny
 from nori.exceptions import AntiSpinTerminated
 
 
-class CheckpointScrutiny(Enum):
-    STRICT = "strict"
-    MODERATE = "moderate"
-    LENIENT = "lenient"
+@dataclass
+class Checkpoint:
+    every: int
+    scrutiny: CheckpointScrutiny = CheckpointScrutiny.MODERATE
+    compact: bool = False
+
+    def __post_init__(self):
+        if self.every <= 0:
+            raise ValueError("Checkpoint.every must be a positive integer.")
 
 
 _SCRUTINY_PROMPTS = {

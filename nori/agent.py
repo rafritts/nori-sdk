@@ -6,12 +6,14 @@ import uuid
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionMessage
 
-from nori.anti_spin import CheckpointScrutiny, evaluate_checkpoint
+from nori.anti_spin import Checkpoint, evaluate_checkpoint
 import nori.config as config
-from nori.context import ContextFile, ContextRole, inject_summary, update_running_summary
+from nori.context import ContextFile, inject_summary, update_running_summary
+from nori.enums import ContextRole, SelfModify
 from nori.exceptions import AntiSpinTerminated, MaxTurnsExceeded
 from nori.mcp.server import MCPServer
-from nori.permissions import PermissionGuard
+from nori.model import Model
+from nori.permissions import Permissions, PermissionGuard
 from nori.pricing import cost_for
 from nori.summarizer import summarize
 
@@ -28,35 +30,34 @@ class Agent:
     def __init__(
         self,
         name: str,
-        model: str = None,
+        model: Model,
         system_prompt: str = "",
-        api_key: str = None,
-        base_url: str = None,
-        context_files: list[ContextFile] = None,
         tools: list = None,
         max_turns: int | None = 10,
-        allow: list[str] = None,
-        deny: list[str] = None,
         description: str = "",
-        checkpoint: int | None = None,
-        checkpoint_scrutiny: CheckpointScrutiny = CheckpointScrutiny.MODERATE,
-        checkpoint_compact: bool = False,
-        self_custodian: bool = False,
-        self_modify: bool = False,
-        self_mutation: bool = False,
+        context_files: list[ContextFile] = None,
+        permissions: Permissions = None,
+        checkpoint: Checkpoint | None = None,
+        self_modify: SelfModify | None = None,
         summarize_tool_output: bool = False,
         running_context_summary: bool = False,
     ):
+        if not name:
+            raise ValueError("Agent name must be a non-empty string.")
+        if max_turns is not None and max_turns <= 0:
+            raise ValueError("Agent max_turns must be a positive integer or None.")
         self.name = name
-        self.model = model or config.DEFAULT_MODEL
+        self._model = model
+        self.model: str = model.id
         self.system_prompt = system_prompt
         self.description = description
         self._context_files = context_files or []
-        self._api_key = api_key or config.API_KEY
-        self._base_url = base_url or config.BASE_URL
         self.__client: AsyncOpenAI | None = None
         self._tools: dict = {self._tool_name(t): t for t in (tools or [])}
-        self._permissions = PermissionGuard(allow, deny)
+        self._permissions = PermissionGuard(
+            permissions.allow if permissions else None,
+            permissions.deny if permissions else None,
+        )
         self._max_turns = max_turns
         self._history: list[dict] = []
         self._turn_count = 0
@@ -67,17 +68,13 @@ class Agent:
         self.summarize_tool_output = summarize_tool_output
         self.running_context_summary = running_context_summary
         self._running_summary: str = ""
-        self.max_context_chars: int = 200_000
+        self.max_context_chars: int = model.context_window
         self._compact_warning_injected: bool = False
         self._mcp_servers: list[MCPServer] = []
-        self.self_custodian = self_custodian
-        self.self_modify = self_modify
-        self.self_mutation = self_mutation
-        if self_custodian or self_modify or self_mutation:
-            self._register_self_modify_tools(self_custodian, self_modify, self_mutation)
+        self._self_modify = self_modify
+        if self_modify is not None:
+            self._register_self_modify_tools(self_modify)
         self._checkpoint = checkpoint
-        self._checkpoint_scrutiny = checkpoint_scrutiny
-        self._checkpoint_compact = checkpoint_compact
         self._prompt_tokens: int = 0
         self._completion_tokens: int = 0
         self._tool_calls_log: list[dict] = []
@@ -100,22 +97,22 @@ class Agent:
     @property
     def _client(self) -> AsyncOpenAI:
         if self.__client is None:
-            self.__client = AsyncOpenAI(api_key=self._api_key, base_url=self._base_url)
+            self.__client = AsyncOpenAI(api_key=self._model.api_key, base_url=self._model.base_url)
         return self.__client
 
     # ── Self-modification ─────────────────────────────────────────────────────
 
-    def _register_self_modify_tools(self, custodian: bool, modify: bool, mutation: bool) -> None:
+    def _register_self_modify_tools(self, level: SelfModify) -> None:
         from nori.tools.self_modify.custodian import make_custodian_tools
         from nori.tools.self_modify.modify import make_modify_tools
         from nori.tools.self_modify.mutation import make_mutation_tools
 
         for t in make_custodian_tools(self):
             self._tools[self._tool_name(t)] = t
-        if modify or mutation:
+        if level in (SelfModify.MODIFY, SelfModify.MUTATION):
             for t in make_modify_tools(self):
                 self._tools[self._tool_name(t)] = t
-        if mutation:
+        if level is SelfModify.MUTATION:
             for t in make_mutation_tools(self):
                 self._tools[self._tool_name(t)] = t
 
@@ -173,10 +170,8 @@ class Agent:
     async def __call__(self, task: str, reason: str = "") -> str:
         sub = Agent(
             name=self.name,
-            model=self.model,
+            model=self._model,
             system_prompt=self.system_prompt,
-            api_key=self._api_key,
-            base_url=self._base_url,
             tools=list(self._tools.values()),
             max_turns=self._max_turns,
             description=self.description,
@@ -415,16 +410,16 @@ class Agent:
             if message.content and message.tool_calls and self.narration:
                 self.on_narration(f"{self.narrator_prefix}{message.content}")
 
-            if self._checkpoint and self._turn_count % self._checkpoint == 0:
-                recent = self._history[-self._checkpoint * 4:]
+            if self._checkpoint and self._turn_count % self._checkpoint.every == 0:
+                recent = self._history[-self._checkpoint.every * 4:]
                 is_spin, summary = await evaluate_checkpoint(
-                    recent, self._checkpoint_scrutiny, self._client, self.model
+                    recent, self._checkpoint.scrutiny, self._client, self.model
                 )
                 if is_spin:
                     raise AntiSpinTerminated(
                         f"Anti-spin triggered at turn {self._turn_count}. Summary: {summary}"
                     )
-                if self._checkpoint_compact:
+                if self._checkpoint.compact:
                     self._history = inject_summary(self._history, summary)
 
             if not message.tool_calls:

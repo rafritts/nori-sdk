@@ -3,8 +3,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from nori import Agent
-from nori.anti_spin import CheckpointScrutiny, evaluate_checkpoint
+from nori import Agent, Checkpoint, CheckpointScrutiny, Model
+from nori.anti_spin import evaluate_checkpoint
 from nori.exceptions import AntiSpinTerminated
 from nori.tool import tool
 
@@ -54,7 +54,7 @@ async def test_checkpoint_fires_every_n_turns():
         ])
         MockOpenAI.return_value = mock_client
 
-        agent = Agent(name="T", model="grok-4.3", max_turns=10, checkpoint=1)
+        agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"), max_turns=10, checkpoint=Checkpoint(every=1))
         await agent.run("go")
         await agent.run("go again")
         # evaluate_checkpoint called after each turn
@@ -70,7 +70,7 @@ async def test_antispinterminated_raised_on_spin():
         ])
         MockOpenAI.return_value = mock_client
 
-        agent = Agent(name="T", model="grok-4.3", checkpoint=1)
+        agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"), checkpoint=Checkpoint(every=1))
         with pytest.raises(AntiSpinTerminated):
             await agent.run("go")
 
@@ -84,7 +84,7 @@ async def test_no_exception_on_progress():
         ])
         MockOpenAI.return_value = mock_client
 
-        agent = Agent(name="T", model="grok-4.3", checkpoint=1)
+        agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"), checkpoint=Checkpoint(every=1))
         result = await agent.run("go")
         assert result == "good output"
 
@@ -106,7 +106,7 @@ async def test_checkpoint_compact_replaces_turns_on_pass():
         ])
         MockOpenAI.return_value = mock_client
 
-        agent = Agent(name="T", model="grok-4.3", checkpoint=1, checkpoint_compact=True)
+        agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"), checkpoint=Checkpoint(every=1, compact=True))
         await agent.run("go")
         summary_msgs = [m for m in agent._history if m.get("_marker") == "__running_summary__"]
         assert len(summary_msgs) == 1

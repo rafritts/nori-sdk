@@ -4,11 +4,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from nori import Agent, ContextFile, ContextRole
+from nori import Agent, ContextFile, ContextRole, Model
 
 
 def make_agent(**kwargs):
-    defaults = dict(name="Test", model="grok-4.3", system_prompt="You are helpful.")
+    defaults = dict(name="Test", model=Model(id="grok-4.3", api_key="test-key"), system_prompt="You are helpful.")
     return Agent(**{**defaults, **kwargs})
 
 

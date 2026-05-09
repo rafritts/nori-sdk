@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from nori import Agent
+from nori import Agent, Model
 from nori.tool import tool
 
 
@@ -56,7 +56,7 @@ async def test_tool_call_logged_at_debug(caplog):
         MockOpenAI.return_value = mock_client
 
         with caplog.at_level(logging.DEBUG, logger="nori.agent"):
-            agent = Agent(name="T", model="grok-4.3", tools=[sample_tool])
+            agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"), tools=[sample_tool])
             await agent.run("go")
 
     assert any("tool_call" in r.message for r in caplog.records)
@@ -82,7 +82,7 @@ async def test_tool_result_stored_in_log(caplog):
         ])
         MockOpenAI.return_value = mock_client
 
-        agent = Agent(name="T", model="grok-4.3", tools=[sample_tool])
+        agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"), tools=[sample_tool])
         await agent.run("go")
 
     assert agent.tool_calls[0]["result"] == "the result"
@@ -108,7 +108,7 @@ async def test_on_tool_result_callback_fires(caplog):
         MockOpenAI.return_value = mock_client
 
         received = []
-        agent = Agent(name="T", model="grok-4.3", tools=[sample_tool])
+        agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"), tools=[sample_tool])
         agent.on_tool_result = lambda name, result, call_id, trace_id: received.append((name, result))
         await agent.run("go")
 
@@ -135,7 +135,7 @@ async def test_narration_logged_at_debug(caplog):
         MockOpenAI.return_value = mock_client
 
         with caplog.at_level(logging.DEBUG, logger="nori.narration"):
-            agent = Agent(name="T", model="grok-4.3", tools=[narr_tool])
+            agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"), tools=[narr_tool])
             await agent.run("go")
 
     assert any("narr_tool" in r.message for r in caplog.records)
@@ -160,7 +160,7 @@ async def test_error_logged_on_tool_failure(caplog):
         MockOpenAI.return_value = mock_client
 
         with caplog.at_level(logging.ERROR, logger="nori.agent"):
-            agent = Agent(name="T", model="grok-4.3", tools=[broken_tool])
+            agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"), tools=[broken_tool])
             with pytest.raises(RuntimeError):
                 await agent.run("go")
 
@@ -187,7 +187,7 @@ async def test_narration_summary_fires_after_run():
         MockOpenAI.return_value = mock_client
 
         fired = []
-        agent = Agent(name="T", model="grok-4.3", tools=[sample_tool])
+        agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"), tools=[sample_tool])
         agent.narration = True
         agent.on_narration = lambda s: fired.append(s)
         await agent.run("go")
@@ -209,7 +209,7 @@ async def test_narration_summary_opt_out():
         MockOpenAI.return_value = mock_client
 
         fired = []
-        agent = Agent(name="T", model="grok-4.3")
+        agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"))
         agent.narration = True
         agent.narration_summary = False
         agent.on_narration = lambda s: fired.append(s)
@@ -232,7 +232,7 @@ async def test_audit_agent_end_includes_billing(tmp_path):
         MockOpenAI.return_value = mock_client
 
         log_file = tmp_path / "test.audit.log"
-        agent = Agent(name="T", model="grok-4.3")
+        agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"))
         agent.auditor = AuditLogger(str(log_file))
         await agent.run("go")
         agent.auditor.close()
@@ -258,7 +258,7 @@ async def test_audit_agent_end_billing_opt_out(tmp_path):
         MockOpenAI.return_value = mock_client
 
         log_file = tmp_path / "test.audit.log"
-        agent = Agent(name="T", model="grok-4.3")
+        agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"))
         agent.auditor = AuditLogger(str(log_file), billing=False)
         await agent.run("go")
         agent.auditor.close()

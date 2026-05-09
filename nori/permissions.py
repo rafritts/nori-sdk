@@ -1,6 +1,17 @@
 import fnmatch
+from dataclasses import dataclass, field
 
 from nori.exceptions import PermissionError
+
+
+@dataclass
+class Permissions:
+    allow: list[str] = field(default_factory=list)
+    deny: list[str] = field(default_factory=list)
+
+    def __post_init__(self):
+        if self.allow and self.deny:
+            raise ValueError("Declare either allow or deny, not both.")
 
 
 class PermissionGuard:

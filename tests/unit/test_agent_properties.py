@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from nori import Agent
+from nori import Agent, Model
 from nori.pricing import cost_for
 from nori.tool import tool
 
@@ -27,7 +27,7 @@ def make_completion_response(content="Done.", prompt_tokens=10, completion_token
 
 
 def make_agent(mock_client=None):
-    agent = Agent(name="T", model="grok-4.3")
+    agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"))
     if mock_client:
         agent.__dict__["_Agent__client"] = mock_client
     return agent
@@ -40,7 +40,7 @@ async def test_turn_count_increments():
             return_value=make_completion_response()
         )
         MockOpenAI.return_value = mock_client
-        agent = Agent(name="T", model="grok-4.3")
+        agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"))
         await agent.run("go")
         assert agent.turn_count == 1
         await agent.run("go again")
@@ -54,7 +54,7 @@ async def test_token_counts_returns_dict():
             return_value=make_completion_response(prompt_tokens=100, completion_tokens=50)
         )
         MockOpenAI.return_value = mock_client
-        agent = Agent(name="T", model="grok-4.3")
+        agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"))
         await agent.run("go")
         tc = agent.token_counts
         assert "prompt" in tc and "completion" in tc
@@ -69,19 +69,19 @@ async def test_cost_is_float():
             return_value=make_completion_response(prompt_tokens=1000, completion_tokens=500)
         )
         MockOpenAI.return_value = mock_client
-        agent = Agent(name="T", model="grok-4.3")
+        agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"))
         await agent.run("go")
         assert isinstance(agent.cost, float)
         assert agent.cost > 0
 
 
 def test_history_returns_list():
-    agent = Agent(name="T", model="grok-4.3")
+    agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"))
     assert isinstance(agent.history, list)
 
 
 def test_tool_calls_returns_list():
-    agent = Agent(name="T", model="grok-4.3")
+    agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"))
     assert isinstance(agent.tool_calls, list)
 
 
@@ -92,7 +92,7 @@ async def test_reset_clears_state():
             return_value=make_completion_response()
         )
         MockOpenAI.return_value = mock_client
-        agent = Agent(name="T", model="grok-4.3")
+        agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"))
         await agent.run("go")
         assert agent.turn_count > 0
         agent.reset()
@@ -102,7 +102,7 @@ async def test_reset_clears_state():
 
 
 def test_properties_are_read_only():
-    agent = Agent(name="T", model="grok-4.3")
+    agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"))
     with pytest.raises(AttributeError):
         agent.history = []
     with pytest.raises(AttributeError):

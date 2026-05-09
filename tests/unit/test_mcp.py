@@ -1,6 +1,6 @@
 import pytest
 
-from nori import Agent
+from nori import Agent, Model
 from nori.mcp.server import MCPServer
 
 
@@ -57,14 +57,14 @@ def test_reason_not_duplicated_if_already_present():
 
 
 def test_add_mcp_server():
-    agent = Agent(name="T", model="grok-4.3")
+    agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"))
     s = MCPServer(name="github", command="npx", args=["-y", "@modelcontextprotocol/server-github"])
     agent.add_mcp_server(s)
     assert s in agent.mcp_servers
 
 
 def test_remove_mcp_server():
-    agent = Agent(name="T", model="grok-4.3")
+    agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"))
     s = MCPServer(name="github", command="npx", args=[])
     agent.add_mcp_server(s)
     agent.remove_mcp_server("github")

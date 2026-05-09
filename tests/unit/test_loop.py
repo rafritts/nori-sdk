@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from nori import Agent
+from nori import Agent, Model
 from nori.exceptions import MaxTurnsExceeded
 from nori.tool import tool
 
@@ -33,7 +33,7 @@ def get_weather(city: str) -> str:
 
 
 async def test_loop_terminates_without_tool_calls():
-    agent = Agent(name="T", model="grok-4.3")
+    agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"))
     agent._complete = AsyncMock(return_value=make_text_message("Hello!"))
     result = await agent.run("Say hi")
     assert result == "Hello!"
@@ -48,7 +48,7 @@ async def test_tool_call_dispatched():
         called_with["city"] = city
         return "sunny"
 
-    agent = Agent(name="T", model="grok-4.3", tools=[spy_tool])
+    agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"), tools=[spy_tool])
     agent._complete = AsyncMock(side_effect=[
         make_tool_call_message("spy_tool", {"city": "Austin", "reason": "checking weather"}),
         make_text_message("It's sunny."),
@@ -63,7 +63,7 @@ async def test_tool_result_appended_to_history():
         """Tool."""
         return "result_value"
 
-    agent = Agent(name="T", model="grok-4.3", tools=[my_tool])
+    agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"), tools=[my_tool])
     agent._complete = AsyncMock(side_effect=[
         make_tool_call_message("my_tool", {"x": "a", "reason": "r"}),
         make_text_message("Done."),
@@ -80,7 +80,7 @@ async def test_loop_iterates_until_no_tool_calls():
         """Noop."""
         return "ok"
 
-    agent = Agent(name="T", model="grok-4.3", tools=[noop], max_turns=10)
+    agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"), tools=[noop], max_turns=10)
     agent._complete = AsyncMock(side_effect=[
         make_tool_call_message("noop", {"x": "1", "reason": "r"}, "c1"),
         make_tool_call_message("noop", {"x": "2", "reason": "r"}, "c2"),
@@ -106,7 +106,7 @@ async def test_parallel_tools_both_called():
         results.append("b")
         return "b"
 
-    agent = Agent(name="T", model="grok-4.3", tools=[tool_a, tool_b])
+    agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"), tools=[tool_a, tool_b])
     tc_a = MagicMock()
     tc_a.id = "c_a"
     tc_a.function.name = "tool_a"
@@ -135,7 +135,7 @@ async def test_parallel_results_both_appended():
         """T2."""
         return "r2"
 
-    agent = Agent(name="T", model="grok-4.3", tools=[t1, t2])
+    agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"), tools=[t1, t2])
     tc1 = MagicMock()
     tc1.id = "c1"
     tc1.function.name = "t1"
@@ -156,7 +156,7 @@ async def test_parallel_results_both_appended():
 
 
 async def test_max_turns_raises():
-    agent = Agent(name="T", model="grok-4.3", max_turns=2)
+    agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"), max_turns=2)
     agent._complete = AsyncMock(return_value=make_text_message("ok"))
     await agent.run("first")
     await agent.run("second")
@@ -172,7 +172,7 @@ async def test_tools_schemas_passed_to_complete():
         ))
         MockOpenAI.return_value = mock_client
 
-        agent = Agent(name="T", model="grok-4.3", tools=[get_weather])
+        agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"), tools=[get_weather])
         await agent.run("hi")
         call_kwargs = mock_client.chat.completions.create.call_args.kwargs
         assert "tools" in call_kwargs

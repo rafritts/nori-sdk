@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from nori import Agent
+from nori import Agent, Model, SelfModify
 
 
 def make_tool_call_message(name, args, call_id="c1"):
@@ -25,23 +25,23 @@ def make_text_message(content="Done."):
 
 
 def test_custodian_false_by_default():
-    agent = Agent(name="T", model="grok-4.3")
+    agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"))
     assert "update_system_prompt" not in agent._tools
 
 
 def test_custodian_unlocks_update_system_prompt():
-    agent = Agent(name="T", model="grok-4.3", self_custodian=True)
+    agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"), self_modify=SelfModify.CUSTODIAN)
     assert "update_system_prompt" in agent._tools
 
 
 def test_self_modify_additive():
-    agent = Agent(name="T", model="grok-4.3", self_modify=True)
+    agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"), self_modify=SelfModify.MODIFY)
     assert "update_system_prompt" in agent._tools
     assert "add_tool" in agent._tools
 
 
 def test_self_mutation_additive():
-    agent = Agent(name="T", model="grok-4.3", self_mutation=True)
+    agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"), self_modify=SelfModify.MUTATION)
     assert "update_system_prompt" in agent._tools
     assert "add_tool" in agent._tools
     assert "update_model" in agent._tools
@@ -60,6 +60,6 @@ async def test_update_system_prompt_changes_system_prompt():
         ])
         MockOpenAI.return_value = mock_client
 
-        agent = Agent(name="T", model="grok-4.3", self_custodian=True)
+        agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"), self_modify=SelfModify.CUSTODIAN)
         await agent.run("update the prompt")
         assert agent.system_prompt == "New instructions."

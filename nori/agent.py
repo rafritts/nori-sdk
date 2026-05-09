@@ -60,6 +60,7 @@ class Agent:
         self.narration: bool = False
         self.narrator_prefix: str = ""
         self.on_narration = self._default_narrator
+        self.on_tool_result = self._default_tool_result_handler
         self.summarize_tool_output: bool = True
         self.running_context_summary: bool = False
         self._running_summary: str = ""
@@ -178,6 +179,9 @@ class Agent:
     def _default_narrator(self, text: str) -> None:
         print(text)
 
+    def _default_tool_result_handler(self, name: str, result: str) -> None:
+        pass
+
     def _narrate(self, tool_name: str, reason: str) -> None:
         msg = f"{self.narrator_prefix}{tool_name}[{reason}]"
         narration_logger.debug(msg)
@@ -232,7 +236,6 @@ class Agent:
         args = json.loads(tc.function.arguments)
         reason = args.get("reason", "")
         self._narrate(tc.function.name, reason)
-        self._tool_calls_log.append({"name": tc.function.name, "args": args})
         logger.debug("tool_call name=%s args=%s", tc.function.name, args)
         try:
             result = await fn(**args)
@@ -242,6 +245,9 @@ class Agent:
         content = str(result)
         if self.summarize_tool_output and getattr(fn, "summarize_output", True):
             content = await summarize(content, reason, self._client, self.model)
+        logger.debug("tool_result name=%s result=%s", tc.function.name, content)
+        self._tool_calls_log.append({"name": tc.function.name, "args": args, "result": content})
+        self.on_tool_result(tc.function.name, content)
         return {"role": "tool", "tool_call_id": tc.id, "content": content}
 
     async def _execute_tools(self, tool_calls) -> list[dict]:

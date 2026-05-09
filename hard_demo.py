@@ -35,6 +35,7 @@ async def main():
     )
     agent.narration = True
     agent.summarize_tool_output = False
+    agent.on_tool_result = lambda name, result: print(f"  └─ {result.strip()}\n")
 
     print("=" * 60)
     print("Nori hard demo — write, test, verify, and self-correct")

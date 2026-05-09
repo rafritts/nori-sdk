@@ -179,7 +179,11 @@ class Agent:
         return await sub.run(task, _trace_id=self._trace_id, _parent_span_id=self._span_id)
 
     def _context_fill(self) -> float:
-        total = sum(len(str(m.get("content", ""))) for m in self._history)
+        def _content_len(content) -> int:
+            if content is None:
+                return 0
+            return len(str(content))
+        total = sum(_content_len(m.get("content")) for m in self._history)
         return total / self.max_context_chars if self.max_context_chars else 0.0
 
     async def _compact(self, fill: float = 0.0) -> None:
@@ -251,6 +255,24 @@ class Agent:
     def _tool_schemas(self) -> list[dict]:
         return [t.schema for t in self._tools.values()]
 
+    def _apply_strips(self) -> None:
+        """After a completion, remove ephemeral image content from history."""
+        for i, m in enumerate(self._history):
+            if m.get("_strip_after_read"):
+                self._history[i] = {k: v for k, v in m.items() if k != "_strip_after_read"}
+                self._history[i]["content"] = "[image result stripped]"
+            if isinstance(m.get("content"), list):
+                new_parts = []
+                changed = False
+                for part in m["content"]:
+                    if part.get("_strip"):
+                        new_parts.append({"type": "text", "text": "[image stripped]"})
+                        changed = True
+                    else:
+                        new_parts.append(part)
+                if changed:
+                    self._history[i] = {**m, "content": new_parts}
+
     def _build_messages(self, history: list[dict]) -> list[dict]:
         system_content = self.system_prompt
         for cf in self._context_files:
@@ -265,8 +287,24 @@ class Agent:
             elif cf.role == ContextRole.ASSISTANT:
                 messages.append({"role": "assistant", "content": cf.content})
 
-        messages.extend(history)
+        messages.extend(self._clean_history(history))
         return messages
+
+    @staticmethod
+    def _clean_history(history: list[dict]) -> list[dict]:
+        """Strip internal metadata keys before sending to the API."""
+        cleaned = []
+        for m in history:
+            if "_strip_after_read" in m or (
+                isinstance(m.get("content"), list) and
+                any("_strip" in part for part in m["content"])
+            ):
+                m = dict(m)
+                m.pop("_strip_after_read", None)
+                if isinstance(m.get("content"), list):
+                    m["content"] = [{k: v for k, v in part.items() if k != "_strip"} for part in m["content"]]
+            cleaned.append(m)
+        return cleaned
 
     def _message_to_dict(self, message: ChatCompletionMessage) -> dict:
         d: dict = {"role": "assistant", "content": message.content}
@@ -326,7 +364,10 @@ class Agent:
             )
         self._tool_calls_log.append({"name": tc.function.name, "args": args, "result": content})
         self.on_tool_result(tc.function.name, content, tool_call_id, self._trace_id)
-        return {"role": "tool", "tool_call_id": tc.id, "content": content}
+        result: dict = {"role": "tool", "tool_call_id": tc.id, "content": content}
+        if args.get("remove_from_context_after_read"):
+            result["_strip_after_read"] = True
+        return result
 
     async def _execute_tools(self, tool_calls) -> list[dict]:
         is_parallel = len(tool_calls) > 1
@@ -381,7 +422,13 @@ class Agent:
         self._span_id = None
         self.parent_span_id = None
 
-    async def run(self, prompt: str, _trace_id: str | None = None, _parent_span_id: str | None = None) -> str:
+    async def run(
+        self,
+        prompt: str,
+        images: list = None,
+        _trace_id: str | None = None,
+        _parent_span_id: str | None = None,
+    ) -> str:
         self._trace_id = _trace_id or str(uuid.uuid4())
         self._span_id = uuid.uuid4().hex[:8]
         if _parent_span_id:
@@ -393,13 +440,19 @@ class Agent:
                 trace_id=self._trace_id, span_id=self._span_id,
                 parent_span_id=self.parent_span_id,
             )
-        self._history.append({"role": "user", "content": prompt})
+        if images:
+            content: list = [{"type": "text", "text": prompt}]
+            content += [img.to_content_part() for img in images]
+            self._history.append({"role": "user", "content": content})
+        else:
+            self._history.append({"role": "user", "content": prompt})
 
         while True:
             if self._max_turns is not None and self._turn_count >= self._max_turns:
                 raise MaxTurnsExceeded(f"Reached max_turns={self._max_turns}")
 
             message = await self._complete(self._history)
+            self._apply_strips()
             self._turn_count += 1
             logger.debug("turn agent=%s turn=%d tool_calls=%d",
                          self.name, self._turn_count,

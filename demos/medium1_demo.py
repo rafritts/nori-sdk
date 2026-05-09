@@ -1,7 +1,7 @@
 import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import asyncio
 
-from nori import Agent, Model
+from nori import Agent, Model, Provider, ContextWindow
 from nori.audit import AuditLogger
 from nori.tools.bash import Bash
 
@@ -32,12 +32,14 @@ def plant_junk():
         subprocess.run(f"dd if=/dev/urandom of=/tmp/app_logs/service_{i}.log bs=512K count=1 2>/dev/null", shell=True)
 
 
+OLLAMA_MODEL = Model(id="gemma4:31b", base_url=Provider.OLLAMA.base_url, api_key=Provider.OLLAMA.api_key, context_window=ContextWindow.K24)
+
 async def main():
     plant_junk()
 
     agent = Agent(
         name="Medium1DemoAgent",
-        model=Model(id="grok-4.3"),
+        model=OLLAMA_MODEL,
         system_prompt=SYSTEM_PROMPT,
         tools=[Bash],
         max_turns=20,

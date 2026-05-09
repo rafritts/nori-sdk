@@ -26,11 +26,12 @@ Complete the following steps in order:
 Do each step explicitly and show all output.
 """
 
+OLLAMA_MODEL = Model(id="gemma4:31b", base_url=Provider.OLLAMA.base_url, api_key=Provider.OLLAMA.api_key, context_window=ContextWindow.K24)
 
 async def main():
     agent = Agent(
         name="DemoAgent",
-        model=Model(id="gemma4:31b", base_url=Provider.OLLAMA.base_url, context_window=ContextWindow.K24),
+        model=OLLAMA_MODEL,
         system_prompt=SYSTEM_PROMPT,
         tools=[Bash],
         max_turns=20,

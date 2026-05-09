@@ -1,5 +1,5 @@
 import os
-from enum import Enum, IntEnum, StrEnum
+from enum import Enum, IntEnum, StrEnum  # noqa: F401 (StrEnum kept for potential downstream use)
 
 
 class Provider(Enum):
@@ -26,6 +26,13 @@ class Provider(Enum):
     def api_key(self) -> str | None:
         env_var = self.value[1]
         return os.getenv(env_var) if env_var else None
+
+
+class ResizeMode(IntEnum):
+    NONE       = 0     # no resize
+    AGGRESSIVE = 512   # logos, icons, small UI elements
+    MODERATE   = 1024  # default — good for most photos and diagrams
+    LIGHT      = 2048  # documents, charts where fine text matters
 
 
 class ContextWindow(IntEnum):

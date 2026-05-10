@@ -120,7 +120,17 @@ class Agent:
     @property
     def _client(self) -> AsyncOpenAI:
         if self.__client is None:
-            self.__client = AsyncOpenAI(api_key=self._model.api_key, base_url=self._model.base_url)
+            if self._model.http_client is not None:
+                self.__client = AsyncOpenAI(
+                    http_client=self._model.http_client,
+                    base_url=self._model.base_url,
+                    api_key="nori",  # SDK requires non-empty; ignored when http_client is set
+                )
+            else:
+                self.__client = AsyncOpenAI(
+                    api_key=self._model.api_key,
+                    base_url=self._model.base_url,
+                )
         return self.__client
 
     # ── Self-modification ─────────────────────────────────────────────────────

@@ -17,6 +17,8 @@ class Provider(Enum):
     GLM        = ("https://open.bigmodel.cn/api/paas/v4/",                   "GLM_API_KEY")
     QWEN       = ("https://dashscope-intl.aliyuncs.com/compatible-mode/v1",  "QWEN_API_KEY")
     OLLAMA     = ("http://localhost:11434/v1",                                "OLLAMA_API_KEY")
+    # base_url is region-dependent; built at Model init time. api_key not used (SigV4 auth).
+    BEDROCK    = ("__bedrock__",                                              None)
 
     @property
     def base_url(self) -> str:
@@ -26,6 +28,46 @@ class Provider(Enum):
     def api_key(self) -> str | None:
         env_var = self.value[1]
         return os.getenv(env_var) if env_var else None
+
+
+def make_bedrock_http_client(region: str) -> object:
+    """Return an httpx.AsyncClient that signs every request with AWS SigV4.
+
+    Credentials are resolved by boto3 in priority order:
+      1. AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY env vars
+      2. ~/.aws/credentials profile
+      3. IAM instance / task role (ECS, EC2, Lambda)
+    """
+    try:
+        import boto3
+        import botocore.auth
+        import botocore.awsrequest
+        import httpx
+    except ImportError:
+        raise ImportError(
+            "boto3 is required for Provider.BEDROCK. "
+            "Install it with: uv add boto3"
+        )
+
+    class _SigV4Auth(httpx.Auth):
+        def __init__(self, session, region: str) -> None:
+            self._creds = session.get_credentials()
+            self._region = region
+
+        def auth_flow(self, request: "httpx.Request"):
+            creds = self._creds.get_frozen_credentials()
+            aws_req = botocore.awsrequest.AWSRequest(
+                method=request.method,
+                url=str(request.url),
+                data=request.content,
+                headers=dict(request.headers),
+            )
+            botocore.auth.SigV4Auth(creds, "bedrock", self._region).add_auth(aws_req)
+            for k, v in aws_req.headers.items():
+                request.headers[k] = v
+            yield request
+
+    return httpx.AsyncClient(auth=_SigV4Auth(boto3.Session(), region))
 
 
 # ── Pricing ───────────────────────────────────────────────────────────────────

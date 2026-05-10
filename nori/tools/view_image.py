@@ -54,8 +54,12 @@ def make_view_image(model: Model):
                             "type": "string",
                             "description": "Your reason for calling this tool.",
                         },
+                        "summary": {
+                            "type": "string",
+                            "description": "One-line description of what the image contains, shown in narration logs.",
+                        },
                     },
-                    "required": ["path", "prompt", "reason"],
+                    "required": ["path", "prompt", "reason", "summary"],
                 },
             },
         }
@@ -70,8 +74,9 @@ def make_view_image(model: Model):
             detail: str = "auto",
             resize: int = ResizeMode.MODERATE,
             remove_from_context_after_read: bool = False,
-        ) -> str:
+        ) -> "ToolResult":
             from nori.image import Image
+            from nori.tools.base import ToolResult
 
             kwargs = {"detail": detail, "resize": resize}
             if path.startswith("http://") or path.startswith("https://"):
@@ -87,6 +92,7 @@ def make_view_image(model: Model):
                 model=model.id,
                 messages=[{"role": "user", "content": content}],
             )
-            return response.choices[0].message.content or ""
+            result = response.choices[0].message.content or ""
+            return ToolResult(result=result)
 
     return ViewImage()

@@ -29,7 +29,7 @@ async def test_bash_agent_result_returned():
         MockAgent.return_value = sub
         from nori.tools.bash_agent import BashAgent
         result = await BashAgent(task="list files", reason="r")
-        assert result == "ls output"
+        assert result.result == "ls output"
 
 
 async def test_bash_agent_isolated_context():
@@ -64,7 +64,7 @@ async def test_file_edit_agent_result_returned():
         MockAgent.return_value = sub
         from nori.tools.file_edit_agent import FileEditAgent
         result = await FileEditAgent(task="edit", reason="r")
-        assert result == "edits applied"
+        assert result.result == "edits applied"
 
 
 # ── FileSearchAgent ───────────────────────────────────────────────────────────
@@ -86,7 +86,7 @@ async def test_file_search_agent_result_returned():
         MockAgent.return_value = sub
         from nori.tools.file_search_agent import FileSearchAgent
         result = await FileSearchAgent(task="find", reason="r")
-        assert result == "found: foo.py"
+        assert result.result == "found: foo.py"
 
 
 # ── WebAgent ──────────────────────────────────────────────────────────────────
@@ -108,7 +108,7 @@ async def test_web_agent_result_returned():
         MockAgent.return_value = sub
         from nori.tools.web_agent import WebAgent
         result = await WebAgent(task="scrape", reason="r")
-        assert result == "scraped content"
+        assert result.result == "scraped content"
 
 
 # ── WebSearch ─────────────────────────────────────────────────────────────────
@@ -130,7 +130,7 @@ async def test_web_search_result_returned():
         MockAgent.return_value = sub
         from nori.tools.web_search import WebSearch
         result = await WebSearch(query="python asyncio", reason="r")
-        assert result == "asyncio is a library"
+        assert result.result == "asyncio is a library"
 
 
 # ── CodeRunnerAgent ───────────────────────────────────────────────────────────
@@ -152,4 +152,4 @@ async def test_code_runner_agent_result_returned():
         MockAgent.return_value = sub
         from nori.tools.code_runner_agent import CodeRunnerAgent
         result = await CodeRunnerAgent(task="compute", reason="r")
-        assert result == "result: 42"
+        assert result.result == "result: 42"

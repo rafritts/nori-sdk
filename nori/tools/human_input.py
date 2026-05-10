@@ -4,12 +4,13 @@ import uuid
 
 import nori.config as config
 from nori.tool import tool
+from nori.tools.base import ToolResult
 
 logger = logging.getLogger("nori.hitl")
 
 
 @tool
-async def HumanInput(question: str, options: list = None) -> str:
+async def HumanInput(question: str, options: list = None) -> ToolResult:
     """Pause execution and ask the human operator a question. Use when you need approval,
     clarification, or a judgment call before proceeding. Provide a clear, specific question.
     Use options when the answer should be one of a fixed set of choices (advisory, not enforced)."""
@@ -27,7 +28,7 @@ async def HumanInput(question: str, options: list = None) -> str:
             cfg.host, cfg.port, request_id,
         )
         try:
-            return await future
+            response = await future
         finally:
             _server.unregister_pending(request_id)
     else:
@@ -40,4 +41,6 @@ async def HumanInput(question: str, options: list = None) -> str:
             lines.append("  Options: " + "  ".join(f"[{o}]" for o in options))
         lines.append("━" * 44)
         print("\n".join(lines))
-        return await asyncio.to_thread(input, "Your response: ")
+        response = await asyncio.to_thread(input, "Your response: ")
+
+    return ToolResult(result=response)

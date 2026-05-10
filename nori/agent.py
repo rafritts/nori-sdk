@@ -10,12 +10,13 @@ from openai.types.chat import ChatCompletionMessage
 from nori.anti_spin import Checkpoint, evaluate_checkpoint
 import nori.config as config
 from nori.context import ContextFile, inject_summary, update_running_summary
-from nori.enums import ContextRole, SelfModify
+from nori.enums import ContextRole, Propagation, SelfModify
 from nori.exceptions import AntiSpinTerminated, MaxTurnsExceeded, RunTimeout, ToolTimeout
 from nori.mcp.server import MCPServer
 from nori.model import Model
 from nori.permissions import Permissions, PermissionGuard
 from nori.providers import cost_for
+from nori.scratchpad import Scratchpad, _scratchpad_var, _make_owner_tools, _make_propagate_tool
 from nori.summarizer import summarize
 
 logger = logging.getLogger("nori.agent")
@@ -46,6 +47,7 @@ class Agent:
         running_context_summary: bool = False,
         tool_timeout: float | None = _UNSET,
         run_timeout: float | None = _UNSET,
+        scratchpad: Scratchpad | None = None,
     ):
         _d = config.get_defaults()
         model = model or _d.model
@@ -93,6 +95,14 @@ class Agent:
         self._self_modify = self_modify
         if self_modify is not None:
             self._register_self_modify_tools(self_modify)
+        self._scratchpad: Scratchpad | None = scratchpad
+        if scratchpad is not None:
+            read_tool, write_tool = _make_owner_tools(scratchpad)
+            self._tools[self._tool_name(read_tool)] = read_tool
+            self._tools[self._tool_name(write_tool)] = write_tool
+            if scratchpad.propagate == Propagation.DISCRETIONARY:
+                propagate_tool = _make_propagate_tool(scratchpad)
+                self._tools[self._tool_name(propagate_tool)] = propagate_tool
         self._checkpoint = checkpoint
         self.tool_timeout: float | None = tool_timeout
         self.run_timeout: float | None = run_timeout
@@ -253,9 +263,9 @@ class Agent:
             suffix = f"[{reason}]"
 
         if self.narration_trace_id and self._trace_id:
-            msg = f"{self.narrator_prefix}{name_part}[{self._trace_id}]{suffix}"
+            msg = f"{self.narrator_prefix}{self.name} → {name_part}[{self._trace_id}]{suffix}"
         else:
-            msg = f"{self.narrator_prefix}{name_part}{suffix}"
+            msg = f"{self.narrator_prefix}{self.name} → {name_part}{suffix}"
 
         narration_logger.debug(msg)
         if self.narration:
@@ -273,14 +283,15 @@ class Agent:
         narration_logger.debug(msg)
         self.on_narration(msg)
 
-    def _narrate_elapsed(self, tool_name: str, elapsed: float, call_id: str | None, is_parallel: bool) -> None:
+    def _narrate_elapsed(self, tool_name: str, elapsed: float, call_id: str | None, is_parallel: bool, summary: str = "") -> None:
         if not self.narration:
             return
         if is_parallel and self.narration_call_id and call_id:
             name_part = f"{tool_name}-{call_id}"
         else:
             name_part = tool_name
-        msg = f"{self.narrator_prefix}{name_part}[{elapsed:.2f}s]"
+        suffix = f"[{elapsed:.2f}s | {summary}]" if summary else f"[{elapsed:.2f}s]"
+        msg = f"{self.narrator_prefix}{self.name} → {name_part}{suffix}"
         narration_logger.debug(msg)
         self.on_narration(msg)
 
@@ -290,9 +301,9 @@ class Agent:
         flat = result.replace("\n", " | ")
         name_part = f"{tool_name}-{call_id}"
         if self.narration_trace_id and self._trace_id:
-            msg = f"{self.narrator_prefix}{name_part}[{self._trace_id}][Result: {flat}]"
+            msg = f"{self.narrator_prefix}{self.name} → {name_part}[{self._trace_id}][Result: {flat}]"
         else:
-            msg = f"{self.narrator_prefix}{name_part}[Result: {flat}]"
+            msg = f"{self.narrator_prefix}{self.name} → {name_part}[Result: {flat}]"
         narration_logger.debug(msg)
         self.on_narration(msg)
 
@@ -322,6 +333,16 @@ class Agent:
 
     def _build_messages(self, history: list[dict]) -> list[dict]:
         system_content = self.system_prompt
+
+        pad = self._scratchpad or _scratchpad_var.get()
+        if pad is not None:
+            parts = []
+            usage = pad.usage_prompt()
+            if usage:
+                parts.append(usage)
+            parts.append(pad.schema_prompt())
+            system_content += "\n\n" + "\n\n".join(parts)
+
         for cf in self._context_files:
             if cf.role == ContextRole.SYSTEM:
                 system_content += "\n\n" + cf.content
@@ -377,6 +398,7 @@ class Agent:
         fn = self._tools[tc.function.name]
         args = json.loads(tc.function.arguments)
         reason = args.get("reason", "")
+        call_summary = args.pop("summary", "")
         tool_span_id = uuid.uuid4().hex[:8]
         tool_call_id = tool_span_id[:4]
         self._narrate(tc.function.name, reason, tool_call_id, is_parallel)
@@ -396,7 +418,7 @@ class Agent:
         except asyncio.TimeoutError:
             msg = f"[ToolTimeout: {tc.function.name} did not complete within {self.tool_timeout}s]"
             logger.warning("tool_timeout name=%s timeout=%s", tc.function.name, self.tool_timeout)
-            narrate_msg = f"{self.narrator_prefix}{tc.function.name}[Timed out after {self.tool_timeout}s]"
+            narrate_msg = f"{self.narrator_prefix}{self.name} → {tc.function.name}[Timed out after {self.tool_timeout}s]"
             narration_logger.debug(narrate_msg)
             if self.narration:
                 self.on_narration(narrate_msg)
@@ -417,11 +439,12 @@ class Agent:
                 )
             raise
         tool_elapsed = time.perf_counter() - tool_start
-        content = str(result) or "[EMPTY]"
+        content = result.result if hasattr(result, "result") else str(result)
+        content = content or "[EMPTY]"
         if self.summarize_tool_output and getattr(fn, "summarize_output", True):
             content = await summarize(content, reason, self._client, self.model)
         logger.debug("tool_result name=%s result=%s elapsed=%.2fs", tc.function.name, content, tool_elapsed)
-        self._narrate_elapsed(tc.function.name, tool_elapsed, tool_call_id, is_parallel)
+        self._narrate_elapsed(tc.function.name, tool_elapsed, tool_call_id, is_parallel, call_summary)
         self._narrate_result(tc.function.name, content, tool_call_id, is_parallel)
         if self.auditor:
             self.auditor.tool_result(
@@ -514,6 +537,13 @@ class Agent:
                 trace_id=self._trace_id, span_id=self._span_id,
                 parent_span_id=self.parent_span_id,
             )
+        if self.narration:
+            preview = prompt[:120].replace("\n", " ")
+            if len(prompt) > 120:
+                preview += "..."
+            start_msg = f"{self.narrator_prefix}{self.name}[{preview}]"
+            narration_logger.debug(start_msg)
+            self.on_narration(start_msg)
         if images:
             content: list = [{"type": "text", "text": prompt}]
             content += [img.to_content_part() for img in images]
@@ -528,6 +558,10 @@ class Agent:
             from nori import server as _ctx_server
             await _ctx_server.ensure_started(_d.server)
             _ctx_token = _ctx_server._agent_name_var.set(self.name)
+
+        _ctx_pad_token = None
+        if self._scratchpad is not None and self._scratchpad.propagate == Propagation.ALWAYS:
+            _ctx_pad_token = _scratchpad_var.set(self._scratchpad)
 
         self._run_start = time.perf_counter()
         try:
@@ -544,6 +578,10 @@ class Agent:
         finally:
             if _ctx_token is not None:
                 _ctx_server._agent_name_var.reset(_ctx_token)
+            if _ctx_pad_token is not None:
+                _scratchpad_var.reset(_ctx_pad_token)
+            if self._scratchpad is not None:
+                self._scratchpad.dump_audit(self.name)
 
     async def _run_loop(self) -> str:
         while True:

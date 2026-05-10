@@ -1,5 +1,12 @@
+from pydantic import BaseModel
+
+
+class ToolResult(BaseModel):
+    result: str
+
+
 class BaseTool:
-    """Base class for class-based tools. Provides .bind() support (Step 24)."""
+    """Base class for class-based tools. Provides .bind() support."""
 
     @classmethod
     def bind(cls, **locked):

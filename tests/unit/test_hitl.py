@@ -107,7 +107,7 @@ async def test_human_input_cli_path(autouse_reset):
     with patch("nori.tools.human_input.asyncio.to_thread", new=AsyncMock(return_value="yes")) as mock_thread:
         from nori.tools.human_input import HumanInput
         result = await HumanInput(question="Proceed?", reason="testing")
-        assert result == "yes"
+        assert result.result == "yes"
         mock_thread.assert_called_once()
 
 
@@ -131,7 +131,7 @@ async def test_human_input_http_path(autouse_reset):
         resolver = asyncio.create_task(resolve_future())
         result = await HumanInput(question="Approve?", reason="testing")
         await resolver
-        assert result == "http-response"
+        assert result.result == "http-response"
         assert len(srv._pending) == 0
 
 

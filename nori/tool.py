@@ -19,12 +19,13 @@ def tool(_fn: Callable = None, *, summarize_output: bool = True):
         sig = inspect.signature(fn)
 
         properties = {
-            "reason": {"type": "string", "description": "Your reason for calling this tool."}
+            "reason": {"type": "string", "description": "Your reason for calling this tool."},
+            "summary": {"type": "string", "description": "One-line narration summary of what this tool call found or did. Be specific: include key values, filenames, counts, or outcomes — not just 'read file' or 'ran command'."},
         }
-        required = ["reason"]
+        required = ["reason", "summary"]
 
         for name, param in sig.parameters.items():
-            if name == "reason":
+            if name in ("reason", "summary"):
                 continue
             properties[name] = {"type": _TYPE_MAP.get(hints.get(name), "string")}
             if param.default is inspect.Parameter.empty:
@@ -47,11 +48,13 @@ def tool(_fn: Callable = None, *, summarize_output: bool = True):
             @functools.wraps(fn)
             async def wrapper(*args, **kwargs):
                 kwargs.pop("reason", None)
+                kwargs.pop("summary", None)
                 return await fn(*args, **kwargs)
         else:
             @functools.wraps(fn)
             async def wrapper(*args, **kwargs):
                 kwargs.pop("reason", None)
+                kwargs.pop("summary", None)
                 return fn(*args, **kwargs)
 
         wrapper.schema = schema

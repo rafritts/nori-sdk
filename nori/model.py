@@ -41,6 +41,10 @@ class Model:
                 "Example: Model(id='grok-4', provider=Provider.XAI)"
             )
 
+    def __repr__(self) -> str:
+        provider_part = f" ({self.provider.name})" if self.provider is not None else ""
+        return f"Model(id={self.id!r}{provider_part})"
+
     def _setup_bedrock(self) -> None:
         import os
         from nori.providers import make_bedrock_http_client

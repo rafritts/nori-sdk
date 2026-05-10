@@ -10,14 +10,21 @@ import pytest
 
 async def test_bash_stdout_returned():
     from nori.tools.bash import Bash
-    result = await Bash(command="echo hello", reason="test")
-    assert "hello" in result
+    result = await Bash(command="echo hello", reason="test", summary="checked greeting")
+    assert "hello" in result.result
 
 
 async def test_bash_stderr_returned():
     from nori.tools.bash import Bash
-    result = await Bash(command="echo err >&2", reason="test")
-    assert "err" in result
+    result = await Bash(command="echo err >&2", reason="test", summary="checked stderr")
+    assert "err" in result.result
+
+
+async def test_bash_summary_stripped_from_call():
+    from nori.tools.bash import Bash
+    # summary is a framework field — tool result has no summary attribute
+    result = await Bash(command="echo hello", reason="test", summary="stripped by framework")
+    assert not hasattr(result, "summary")
 
 
 async def test_bash_reason_not_in_command():
@@ -67,8 +74,8 @@ async def test_file_search_finds_by_name(tmp_path):
     (tmp_path / "foo.py").write_text("x")
     (tmp_path / "bar.txt").write_text("x")
     result = await FileSearch(path=str(tmp_path), pattern="*.py", reason="r")
-    assert "foo.py" in result
-    assert "bar.txt" not in result
+    assert "foo.py" in result.result
+    assert "bar.txt" not in result.result
 
 
 async def test_file_search_finds_by_content(tmp_path):
@@ -76,14 +83,14 @@ async def test_file_search_finds_by_content(tmp_path):
     (tmp_path / "a.txt").write_text("hello nori world")
     (tmp_path / "b.txt").write_text("unrelated")
     result = await FileSearch(path=str(tmp_path), pattern="*", content="nori", reason="r")
-    assert "a.txt" in result
-    assert "b.txt" not in result
+    assert "a.txt" in result.result
+    assert "b.txt" not in result.result
 
 
 async def test_file_search_no_match_returns_empty(tmp_path):
     from nori.tools.file_search import FileSearch
     result = await FileSearch(path=str(tmp_path), pattern="*.xyz", reason="r")
-    assert result == "No matches found."
+    assert result.result == "No matches found."
 
 
 # ── WebClient ─────────────────────────────────────────────────────────────────
@@ -103,7 +110,7 @@ async def test_web_client_returns_response_body():
 
     with patch("httpx.AsyncClient", return_value=mock_client):
         result = await WebClient(url="http://example.com", reason="r")
-    assert "Hello from server" in result
+    assert "Hello from server" in result.result
 
 
 async def test_web_client_http_error_returns_status():
@@ -121,7 +128,7 @@ async def test_web_client_http_error_returns_status():
 
     with patch("httpx.AsyncClient", return_value=mock_client):
         result = await WebClient(url="http://example.com/missing", reason="r")
-    assert "404" in result
+    assert "404" in result.result
 
 
 async def test_web_client_method_passed_through():
@@ -148,14 +155,14 @@ async def test_web_client_method_passed_through():
 async def test_code_runner_stdout_returned():
     from nori.tools.code_runner import CodeRunner
     result = await CodeRunner(code="print('hello nori')", reason="r")
-    assert "hello nori" in result
+    assert "hello nori" in result.result
 
 
 async def test_code_runner_exception_returned_not_raised():
     from nori.tools.code_runner import CodeRunner
     result = await CodeRunner(code="raise ValueError('boom')", reason="r")
-    assert "[error]" in result
-    assert "boom" in result
+    assert "[error]" in result.result
+    assert "boom" in result.result
 
 
 async def test_code_runner_reason_not_in_snippet():

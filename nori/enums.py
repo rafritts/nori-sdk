@@ -34,3 +34,14 @@ class SelfModify(Enum):
     CUSTODIAN = "custodian"   # read/inspect agent state only
     MODIFY    = "modify"      # edit tools and config; implies CUSTODIAN
     MUTATION  = "mutation"    # full self-rewrite; implies MODIFY and CUSTODIAN
+
+
+class Propagation(Enum):
+    ALWAYS        = "always"        # sub-agents always inherit the scratchpad
+    NEVER         = "never"         # scratchpad is private to this agent
+    DISCRETIONARY = "discretionary" # agent decides at runtime via ScratchpadPropagate
+
+
+class ScratchpadUsage(Enum):
+    REQUIRED  = "required"   # treat scratchpad as mandatory — read/write before producing output
+    SELECTIVE = "selective"  # write only critical information; do not clutter with noise

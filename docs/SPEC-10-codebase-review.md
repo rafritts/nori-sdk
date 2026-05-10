@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-10  
 **Scope:** All files under `nori/`, `tests/`, `demos/`, `exercises/`  
-**Tools used:** `ruff` (78 issues), `mypy` (29 errors), manual review  
+**Tools used:** `ruff` (78 issues), `mypy` (29 errors), `radon` (CC + MI), manual review  
 
 ---
 
@@ -227,6 +227,147 @@ from nori.providers import Provider  # re-exported for backward compat
 
 ---
 
+---
+
+## Part 2: Complexity and SRP Analysis
+
+**Tool:** `radon cc` (cyclomatic complexity) and `radon mi` (maintainability index)
+
+### The finding in one sentence
+
+Every file in the codebase is healthy except `agent.py`, which scores MI=0 (radon's floor) and contains four methods with C/D-grade complexity.
+
+### Cyclomatic complexity scores (B or worse)
+
+| Score | Grade | Method | What it does |
+|-------|-------|--------|-------------|
+| 23 | D | `Agent.__init__` | Constructor |
+| 20 | C | `Agent._run_loop` | Main agent loop |
+| 15 | C | `Agent._invoke_tool` | Single tool dispatch |
+| 15 | C | `Agent.run` | Public entry point |
+| 12 | C | `Model.__post_init__` | Model validation |
+| 10 | B | `Agent._clean_history` | History cleanup |
+| 9  | B | `Agent._apply_strips` | Image strip cleanup |
+| 9  | B | `Agent._build_messages` | Message construction |
+
+Everything else in the codebase is A-grade (1–5). The problem is entirely concentrated in `agent.py`.
+
+### Why `agent.py` scores MI=0
+
+MI combines lines of code, cyclomatic complexity, and comment density. `agent.py` is 665 lines. With four C/D methods and minimal inline comments, radon floors the score. MI=0 doesn't mean the code is broken — it means a new contributor reading it has a lot to hold in their head at once.
+
+### SRP analysis
+
+`Agent` has these distinct responsibility clusters currently mixed together:
+
+**Narration** — 11 attributes and methods dedicated to printing output:  
+`narration`, `narrator_prefix`, `narration_call_id`, `narration_trace_id`, `narration_summary`, `on_narration`, `_default_narrator`, `_narrate`, `_narrate_elapsed`, `_narrate_result`, `_narrate_summary`
+
+**Context management** — fill calculation, compaction, and the 70%/85% warning logic:  
+`max_context_chars`, `_compact_warning_injected`, `_context_fill`, `_compact`, and inline branching inside `_run_loop`
+
+**Tool dispatch** — permission checking, argument extraction, timeout, error handling, result processing, strip-after-read:  
+`_invoke_tool`, `_execute_tools`, `_permissions`
+
+**Core loop** — turn counting, API calls, history management, anti-spin checkpoint:  
+`_run_loop`, `_complete`, `_build_messages`, `_clean_history`, `_message_to_dict`, `_apply_strips`
+
+**Bookkeeping** — token counts, cost, elapsed, tool call log, auditing, tracing:  
+`_prompt_tokens`, `_completion_tokens`, `_tool_calls_log`, `_run_start`, `_elapsed`, `auditor`, `_trace_id`, `_span_id`
+
+### What's actually worth fixing
+
+**Don't refactor into separate classes.** All five clusters share `self` state heavily. A `Narrator` class would need to hold a reference back to the agent to access `_trace_id`, `narrator_prefix`, etc. A `ContextManager` class would need `_history`, `_client`, `_model`. Extracting into classes means either passing a lot of state or creating circular references — the cure is worse than the disease.
+
+**Do extract private methods from the hot methods.** This is the correct pragmatic lever. The three high-CC methods (`_run_loop`, `_invoke_tool`, `__init__`) each contain coherent sub-blocks that can become named private methods, dropping CC without moving any state.
+
+---
+
+### 15. `_run_loop` complexity — extract sub-blocks
+**File:** `nori/agent.py`  
+**CC before:** 20 (C grade)  
+**Severity:** Medium
+
+`_run_loop` does five distinct things inline: turn limit enforcement, context fill + compaction, compact warning injection, anti-spin checkpoint evaluation, and loop exit. The fill/compaction/warning block alone is 15 lines with 3 branches — enough to be a private method.
+
+**Fix:** Extract two methods:
+```python
+async def _handle_context_pressure(self, fill: float) -> None:
+    """Compact or warn based on fill level."""
+    if fill >= 0.85:
+        await self._compact(fill=fill)
+    elif fill >= 0.70 and not self._compact_warning_injected:
+        self._history.append({"role": "user", "content": _COMPACT_WARNING, "_marker": _COMPACT_MARKER})
+        self._compact_warning_injected = True
+        msg = f"{self.narrator_prefix}{self.name}[Context warning ({fill:.0%} full)]"
+        narration_logger.debug(msg)
+        if self.narration:
+            self.on_narration(msg)
+
+async def _evaluate_checkpoint(self) -> None:
+    """Run anti-spin check and optionally compact."""
+    recent = self._history[-self._checkpoint.every * 4:]
+    is_spin, summary = await evaluate_checkpoint(recent, self._checkpoint.scrutiny, self._client, self.model)
+    if is_spin:
+        raise AntiSpinTerminated(f"Anti-spin triggered at turn {self._turn_count}. Summary: {summary}")
+    if self._checkpoint.compact:
+        self._history = inject_summary(self._history, summary)
+```
+
+Estimated CC after: ~10 (B grade). Drops the loop to its essential structure: call API, check fill, check for tools, dispatch or return.
+
+---
+
+### 16. `_invoke_tool` complexity — extract audit/narration bookend
+**File:** `nori/agent.py`  
+**CC before:** 15 (C grade)  
+**Severity:** Low-Medium
+
+`_invoke_tool` has a clear structure: setup → narrate/audit start → execute → narrate/audit end → build return. The narration and audit calls at both ends are identical in shape. The Compact special case at the very top (`if tc.function.name == "Compact"`) is also a code smell — one tool with a completely different dispatch path that bypasses permissions, timeouts, and logging entirely.
+
+**Fix:** Move the Compact early-return into a named check, and extract the audit bookend:
+```python
+async def _invoke_tool(self, tc, is_parallel: bool = False) -> dict:
+    if self._is_compact_call(tc):
+        return await self._handle_compact(tc)
+    ...
+```
+
+Extracting `_is_compact_call` and `_handle_compact` removes the biggest irregular branch and makes the main dispatch path clean.
+
+Estimated CC after: ~9 (B grade).
+
+---
+
+### 17. `Agent.__init__` complexity — extract tool registration
+**File:** `nori/agent.py`  
+**CC before:** 23 (D grade)  
+**Severity:** Low-Medium
+
+Most of the CC in `__init__` comes from two sources: (1) `_UNSET` sentinel resolution (3 branches), and (2) tool registration — iterating tools, injecting models, registering scratchpad tools, registering self-modify tools. The latter is a coherent block that doesn't need to be inline.
+
+**Fix:** Extract into `_register_tools(tools, scratchpad, self_modify)`:
+```python
+def _register_tools(self, tools: list, scratchpad, self_modify, defaults) -> None:
+    self._tools = {self._tool_name(t): t for t in (tools or [])}
+    for t in self._tools.values():
+        if hasattr(t, "model") and t.model is None:
+            t.model = defaults.tool_models.get(t) or defaults.tool_models.get(type(t)) or self._model
+    if self_modify is not None:
+        self._register_self_modify_tools(self_modify)
+    if scratchpad is not None:
+        read_tool, write_tool = _make_owner_tools(scratchpad)
+        self._tools[self._tool_name(read_tool)] = read_tool
+        self._tools[self._tool_name(write_tool)] = write_tool
+        if scratchpad.propagate == Propagation.DISCRETIONARY:
+            propagate_tool = _make_propagate_tool(scratchpad)
+            self._tools[self._tool_name(propagate_tool)] = propagate_tool
+```
+
+Estimated CC after: ~15 (C grade, moving toward B). Still complex due to `_UNSET` resolution, but the tool registration block is out.
+
+---
+
 ## Summary
 
 | # | Severity | What | File |
@@ -245,3 +386,6 @@ from nori.providers import Provider  # re-exported for backward compat
 | 12 | Low | 78 ruff issues (65 auto-fixable) | various |
 | 13 | Low | `ScratchpadPropagate` returns raw string | scratchpad.py |
 | 14 | Low | `Provider` re-exported from `enums.py` | enums.py |
+| 15 | Medium | `_run_loop` CC=20 — extract `_handle_context_pressure` + `_evaluate_checkpoint` | agent.py |
+| 16 | Low-Med | `_invoke_tool` CC=15 — extract Compact handling + fix irregular dispatch | agent.py |
+| 17 | Low-Med | `Agent.__init__` CC=23 — extract `_register_tools` | agent.py |

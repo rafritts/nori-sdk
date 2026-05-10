@@ -71,10 +71,6 @@ class Agent:
         self.description = description
         self._context_files = context_files or []
         self.__client: AsyncOpenAI | None = None
-        self._tools: dict = {self._tool_name(t): t for t in (tools or [])}
-        for t in self._tools.values():
-            if hasattr(t, "model") and t.model is None:
-                t.model = _d.tool_models.get(t) or _d.tool_models.get(type(t)) or model
         self._permissions = PermissionGuard(
             permissions.allow if permissions else None,
             permissions.deny if permissions else None,
@@ -93,17 +89,9 @@ class Agent:
         self._compact_warning_injected: bool = False
         self._mcp_servers: list[MCPServer] = []
         self._self_modify = self_modify
-        if self_modify is not None:
-            self._register_self_modify_tools(self_modify)
         self._scratchpad: Scratchpad | None = scratchpad
-        if scratchpad is not None:
-            read_tool, write_tool = _make_owner_tools(scratchpad)
-            self._tools[self._tool_name(read_tool)] = read_tool
-            self._tools[self._tool_name(write_tool)] = write_tool
-            if scratchpad.propagate == Propagation.DISCRETIONARY:
-                propagate_tool = _make_propagate_tool(scratchpad)
-                self._tools[self._tool_name(propagate_tool)] = propagate_tool
         self._checkpoint = checkpoint
+        self._register_tools(tools, scratchpad, self_modify, _d)
         self.tool_timeout: float | None = tool_timeout
         self.run_timeout: float | None = run_timeout
         self._run_start: float | None = None
@@ -158,6 +146,21 @@ class Agent:
         if level is SelfModify.MUTATION:
             for t in make_mutation_tools(self):
                 self._tools[self._tool_name(t)] = t
+
+    def _register_tools(self, tools: list, scratchpad, self_modify, defaults) -> None:
+        self._tools: dict = {self._tool_name(t): t for t in (tools or [])}
+        for t in self._tools.values():
+            if hasattr(t, "model") and t.model is None:
+                t.model = defaults.tool_models.get(t) or defaults.tool_models.get(type(t)) or self._model
+        if self_modify is not None:
+            self._register_self_modify_tools(self_modify)
+        if scratchpad is not None:
+            read_tool, write_tool = _make_owner_tools(scratchpad)
+            self._tools[self._tool_name(read_tool)] = read_tool
+            self._tools[self._tool_name(write_tool)] = write_tool
+            if scratchpad.propagate == Propagation.DISCRETIONARY:
+                propagate_tool = _make_propagate_tool(scratchpad)
+                self._tools[self._tool_name(propagate_tool)] = propagate_tool
 
     # ── MCP ───────────────────────────────────────────────────────────────────
 
@@ -261,6 +264,37 @@ class Agent:
                 trace_id=self._trace_id, span_id=self._span_id,
                 parent_span_id=self.parent_span_id,
             )
+
+    async def _handle_context_pressure(self, fill: float) -> None:
+        if fill >= 0.85:
+            await self._compact(fill=fill)
+        elif fill >= 0.70 and not self._compact_warning_injected:
+            self._history.append({
+                "role": "user",
+                "content": _COMPACT_WARNING,
+                "_marker": _COMPACT_MARKER,
+            })
+            self._compact_warning_injected = True
+            warn_msg = f"{self.narrator_prefix}{self.name}[Context warning ({fill:.0%} full)]"
+            narration_logger.debug(warn_msg)
+            if self.narration:
+                self.on_narration(warn_msg)
+
+    async def _run_checkpoint(self) -> None:
+        recent = self._history[-self._checkpoint.every * 4:]
+        is_spin, summary = await evaluate_checkpoint(
+            recent, self._checkpoint.scrutiny, self._client, self.model
+        )
+        if is_spin:
+            raise AntiSpinTerminated(
+                f"Anti-spin triggered at turn {self._turn_count}. Summary: {summary}"
+            )
+        if self._checkpoint.compact:
+            self._history = inject_summary(self._history, summary)
+
+    async def _handle_compact_call(self, tc) -> dict:
+        await self._compact(fill=self._context_fill())
+        return {"role": "tool", "tool_call_id": tc.id, "content": "History compacted."}
 
     def _default_narrator(self, text: str) -> None:
         print(text)
@@ -406,8 +440,7 @@ class Agent:
 
     async def _invoke_tool(self, tc, is_parallel: bool = False) -> dict:
         if tc.function.name == "Compact":
-            await self._compact(fill=self._context_fill())
-            return {"role": "tool", "tool_call_id": tc.id, "content": "History compacted."}
+            return await self._handle_compact_call(tc)
         self._permissions.check(tc.function.name)
         fn = self._tools[tc.function.name]
         args = json.loads(tc.function.arguments)
@@ -614,35 +647,13 @@ class Agent:
                          len(message.tool_calls) if message.tool_calls else 0)
             self._history.append(self._message_to_dict(message))
 
-            fill = self._context_fill()
-            if fill >= 0.85:
-                await self._compact(fill=fill)
-            elif fill >= 0.70 and not self._compact_warning_injected:
-                self._history.append({
-                    "role": "user",
-                    "content": _COMPACT_WARNING,
-                    "_marker": _COMPACT_MARKER,
-                })
-                self._compact_warning_injected = True
-                warn_msg = f"{self.narrator_prefix}{self.name}[Context warning ({fill:.0%} full)]"
-                narration_logger.debug(warn_msg)
-                if self.narration:
-                    self.on_narration(warn_msg)
+            await self._handle_context_pressure(self._context_fill())
 
             if message.content and message.tool_calls and self.narration:
                 self.on_narration(f"{self.narrator_prefix}{message.content}")
 
             if self._checkpoint and self._turn_count % self._checkpoint.every == 0:
-                recent = self._history[-self._checkpoint.every * 4:]
-                is_spin, summary = await evaluate_checkpoint(
-                    recent, self._checkpoint.scrutiny, self._client, self.model
-                )
-                if is_spin:
-                    raise AntiSpinTerminated(
-                        f"Anti-spin triggered at turn {self._turn_count}. Summary: {summary}"
-                    )
-                if self._checkpoint.compact:
-                    self._history = inject_summary(self._history, summary)
+                await self._run_checkpoint()
 
             if not message.tool_calls:
                 if self.running_context_summary:

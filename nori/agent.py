@@ -521,6 +521,14 @@ class Agent:
         else:
             self._history.append({"role": "user", "content": prompt})
 
+        _d = config.get_defaults()
+        _ctx_server = None
+        _ctx_token = None
+        if _d.server.enabled:
+            from nori import server as _ctx_server
+            await _ctx_server.ensure_started(_d.server)
+            _ctx_token = _ctx_server._agent_name_var.set(self.name)
+
         self._run_start = time.perf_counter()
         try:
             async with asyncio.timeout(self.run_timeout):
@@ -533,6 +541,9 @@ class Agent:
                 f"{self.name} exceeded run_timeout={self.run_timeout}s "
                 f"after {self._turn_count} turns"
             )
+        finally:
+            if _ctx_token is not None:
+                _ctx_server._agent_name_var.reset(_ctx_token)
 
     async def _run_loop(self) -> str:
         while True:

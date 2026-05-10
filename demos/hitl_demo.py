@@ -78,6 +78,9 @@ async def main() -> None:
     stop.set()
     responder_task.cancel()
 
+    from nori import server as _server
+    await _server.shutdown()
+
     print(f"\n{DIVIDER}")
     print("Final response:")
     print(result)

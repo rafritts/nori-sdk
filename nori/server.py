@@ -12,10 +12,11 @@ _agent_name_var: ContextVar[str] = ContextVar("nori_agent_name", default="unknow
 _pending: dict[str, dict] = {}
 
 _server_task: asyncio.Task | None = None
+_uvicorn_server = None  # uvicorn.Server instance, kept for graceful shutdown
 
 
 async def ensure_started(cfg) -> None:
-    global _server_task
+    global _server_task, _uvicorn_server
     if _server_task is not None:
         return
     try:
@@ -28,11 +29,21 @@ async def ensure_started(cfg) -> None:
 
     app = _make_app()
     uv_cfg = uvicorn.Config(app, host=cfg.host, port=cfg.port, log_level="warning")
-    server = uvicorn.Server(uv_cfg)
-    _server_task = asyncio.create_task(server.serve())
+    _uvicorn_server = uvicorn.Server(uv_cfg)
+    _server_task = asyncio.create_task(_uvicorn_server.serve())
     # Give uvicorn a moment to bind before accepting requests.
     await asyncio.sleep(0.15)
     logger.info("nori server started on http://%s:%d", cfg.host, cfg.port)
+
+
+async def shutdown() -> None:
+    global _server_task, _uvicorn_server
+    if _uvicorn_server is not None:
+        _uvicorn_server.should_exit = True
+        if _server_task is not None:
+            await _server_task
+    _server_task = None
+    _uvicorn_server = None
 
 
 def register_pending(

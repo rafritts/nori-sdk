@@ -1,10 +1,7 @@
-import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 
 from nori import Agent, Model
-from nori.tool import tool
 
 
 def make_text_message(content="Done."):
@@ -82,14 +79,13 @@ async def test_warning_injected_at_70_percent():
     with patch("nori.agent.AsyncOpenAI") as MockOpenAI:
         mock_client = MagicMock()
         mock_client.chat.completions.create = AsyncMock(
-            return_value=MagicMock(choices=[MagicMock(message=make_text_message())])
+            return_value=MagicMock(choices=[MagicMock(message=make_text_message())], usage=None)
         )
         MockOpenAI.return_value = mock_client
 
         agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"))
         agent.max_context_chars = 100
-        # Fill history to > 70% of 100 chars
-        agent._history = [{"role": "user", "content": "x" * 75}]
+        agent._prompt_tokens = 75  # 75% of 100 token budget
         await agent.run("hi")
         warning_msgs = [m for m in agent._history if m.get("_marker") == "__compact_warning__"]
         assert len(warning_msgs) == 1
@@ -99,13 +95,13 @@ async def test_warning_not_injected_twice():
     with patch("nori.agent.AsyncOpenAI") as MockOpenAI:
         mock_client = MagicMock()
         mock_client.chat.completions.create = AsyncMock(
-            return_value=MagicMock(choices=[MagicMock(message=make_text_message())])
+            return_value=MagicMock(choices=[MagicMock(message=make_text_message())], usage=None)
         )
         MockOpenAI.return_value = mock_client
 
         agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"))
         agent.max_context_chars = 100
-        agent._history = [{"role": "user", "content": "x" * 75}]
+        agent._prompt_tokens = 75  # 75% of 100 token budget
         await agent.run("hi")
         await agent.run("hi again")
         warning_msgs = [m for m in agent._history if m.get("_marker") == "__compact_warning__"]
@@ -116,7 +112,7 @@ async def test_compaction_fires_at_85_percent():
     with patch("nori.agent.AsyncOpenAI") as MockOpenAI:
         mock_client = MagicMock()
         summary_resp = summary_response("compacted summary")
-        main_resp = MagicMock(choices=[MagicMock(message=make_text_message())])
+        main_resp = MagicMock(choices=[MagicMock(message=make_text_message())], usage=None)
         mock_client.chat.completions.create = AsyncMock(
             side_effect=[main_resp, summary_resp]
         )
@@ -124,7 +120,7 @@ async def test_compaction_fires_at_85_percent():
 
         agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"))
         agent.max_context_chars = 100
-        agent._history = [{"role": "user", "content": "x" * 90}]
+        agent._prompt_tokens = 90  # 90% of 100 token budget
         await agent.run("hi")
 
         summary_msgs = [m for m in agent._history if m.get("_marker") == "__running_summary__"]

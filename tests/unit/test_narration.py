@@ -1,7 +1,6 @@
 import json
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
 
 from nori import Agent, Model
 from nori.tool import tool

@@ -10,13 +10,11 @@ Shows:
   2. Orchestrator delegates naturally — the model decides when to call each
 """
 
-import config
 import asyncio
 
 from nori import Agent
 from nori.audit import AuditLogger
 from nori.tool import tool
-from nori.tools.bash import Bash
 
 DIVIDER = "=" * 60
 

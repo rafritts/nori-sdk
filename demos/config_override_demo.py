@@ -11,7 +11,6 @@ then constructs three agents:
 All three run the same task so the behaviour differences are visible.
 """
 
-import config  # sets global defaults: model=grok-4.3, etc.
 import asyncio
 
 import nori

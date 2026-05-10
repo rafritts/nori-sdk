@@ -14,7 +14,6 @@ Shows:
   5. All of the above wired into a real agent run
 """
 
-import config
 import asyncio
 import json
 
@@ -83,7 +82,7 @@ section("4. .bind() — lock parameters to fixed values")
 get_london_weather = get_weather.bind(city="London", unit="celsius")
 print(f"Original schema params: {list(get_weather.schema['function']['parameters']['properties'].keys())}")
 print(f"Bound schema params:    {list(get_london_weather.schema['function']['parameters']['properties'].keys())}")
-print(f"\nCalling bound tool (city and unit are locked):")
+print("\nCalling bound tool (city and unit are locked):")
 result = asyncio.run(get_london_weather(reason="demo"))
 print(f"  → {result}")
 

@@ -1,10 +1,10 @@
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from nori import Agent, Model
-from nori.exceptions import RunTimeout, ToolTimeout
+from nori.exceptions import RunTimeout
 from nori.tool import tool
 
 

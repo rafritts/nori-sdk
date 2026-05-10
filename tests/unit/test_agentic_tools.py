@@ -1,6 +1,5 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 
 
 def patch_sub_agent(result="sub-agent result"):

@@ -1,7 +1,8 @@
 """Unit tests for Scratchpad, Propagation, and ScratchpadUsage."""
 
 import asyncio
-import pytest
+import json
+import os
 from pydantic import BaseModel
 
 from nori.enums import Propagation, ScratchpadUsage
@@ -220,8 +221,6 @@ def test_agent_does_not_inject_propagate_when_never():
 
 
 # ── Scratchpad: audit output ──────────────────────────────────────────────────
-
-import json, os, tempfile
 
 def test_dump_audit_untyped(tmp_path):
     path = str(tmp_path / "audit.json")

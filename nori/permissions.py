@@ -1,7 +1,7 @@
 import fnmatch
 from dataclasses import dataclass, field
 
-from nori.exceptions import PermissionError
+from nori.exceptions import ToolPermissionError
 
 
 @dataclass
@@ -24,7 +24,7 @@ class PermissionGuard:
     def check(self, tool_name: str) -> None:
         if self._deny:
             if any(fnmatch.fnmatch(tool_name, pat) for pat in self._deny):
-                raise PermissionError(f"Tool '{tool_name}' is denied.")
+                raise ToolPermissionError(f"Tool '{tool_name}' is denied.")
         elif self._allow:
             if not any(fnmatch.fnmatch(tool_name, pat) for pat in self._allow):
-                raise PermissionError(f"Tool '{tool_name}' is not in the allow list.")
+                raise ToolPermissionError(f"Tool '{tool_name}' is not in the allow list.")

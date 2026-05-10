@@ -8,6 +8,8 @@ from nori.providers import Provider
 from nori.image import Image
 from nori.model import Model
 from nori.permissions import Permissions
+from nori.scratchpad import Scratchpad
+from nori.enums import Propagation, ScratchpadUsage
 
 __all__ = [
     "Agent",
@@ -22,7 +24,10 @@ __all__ = [
     "Image",
     "Model",
     "Permissions",
+    "Propagation",
     "Provider",
     "ResizeMode",
+    "Scratchpad",
+    "ScratchpadUsage",
     "SelfModify",
 ]

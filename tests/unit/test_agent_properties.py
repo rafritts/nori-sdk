@@ -1,11 +1,9 @@
-import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from nori import Agent, Model
 from nori.providers import cost_for
-from nori.tool import tool
 
 
 def make_text_message(content="Done."):

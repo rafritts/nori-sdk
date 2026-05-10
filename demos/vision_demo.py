@@ -11,9 +11,8 @@ Ollama: pull a vision-capable model first, e.g.:
 
 import config
 import asyncio
-from io import BytesIO
 
-from nori import Agent, Image, ResizeMode
+from nori import Agent
 from nori.audit import AuditLogger
 from nori.tools.view_image import make_view_image
 

@@ -9,7 +9,8 @@ Run:
     python exercises/incident_response/run.py
 """
 
-import sys, os
+import sys
+import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import asyncio

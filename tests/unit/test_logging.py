@@ -237,7 +237,7 @@ async def test_audit_agent_end_includes_billing(tmp_path):
         await agent.run("go")
         agent.auditor.close()
 
-    events = [json.loads(l) for l in log_file.read_text().splitlines()]
+    events = [json.loads(line) for line in log_file.read_text().splitlines()]
     end = next(e for e in events if e["event"] == "agent_end")
     assert "prompt_tokens" in end
     assert "completion_tokens" in end
@@ -263,7 +263,7 @@ async def test_audit_agent_end_billing_opt_out(tmp_path):
         await agent.run("go")
         agent.auditor.close()
 
-    events = [json.loads(l) for l in log_file.read_text().splitlines()]
+    events = [json.loads(line) for line in log_file.read_text().splitlines()]
     end = next(e for e in events if e["event"] == "agent_end")
     assert "prompt_tokens" not in end
     assert "completion_tokens" not in end

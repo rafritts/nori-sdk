@@ -11,7 +11,6 @@ Shows:
   3. narrator_prefix for multi-agent disambiguation
 """
 
-import config
 import asyncio
 
 from nori import Agent

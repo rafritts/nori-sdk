@@ -141,7 +141,6 @@ async def test_human_input_http_path(autouse_reset):
 async def test_live_server_health(autouse_reset, unused_tcp_port):
     """Start the real embedded server and hit /health."""
     import httpx
-    from nori.config import ServerConfig
     from nori import server as srv
     srv._server_task = None  # ensure clean state
 
@@ -161,7 +160,6 @@ async def test_live_server_health(autouse_reset, unused_tcp_port):
 async def test_live_server_hitl_flow(autouse_reset, unused_tcp_port):
     """Full round-trip: register pending → GET /hitl/pending → POST /respond."""
     import httpx
-    from nori.config import ServerConfig
     from nori import server as srv
     srv._server_task = None
     srv._pending.clear()

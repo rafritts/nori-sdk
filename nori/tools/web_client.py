@@ -7,6 +7,9 @@ from nori.tools.base import ToolResult
 @tool
 async def WebClient(url: str, method: str = "GET", body: str = "") -> ToolResult:
     """Make an HTTP request and return the response body."""
-    async with httpx.AsyncClient() as client:
-        response = await client.request(method, url, content=body or None)
-    return ToolResult(result=f"[{response.status_code}]\n{response.text}")
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.request(method, url, content=body or None)
+        return ToolResult(result=f"[{response.status_code}]\n{response.text}")
+    except httpx.HTTPError as e:
+        return ToolResult(result=f"[network error] {e}")

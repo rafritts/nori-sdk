@@ -1,8 +1,9 @@
-import sys, os
+import sys
+import os
 sys.path.insert(0, os.path.dirname(__file__))
 
 import cache
-from db import execute_query, execute_write
+from db import execute_query
 
 
 def get_customer(customer_id: int) -> dict | None:

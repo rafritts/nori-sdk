@@ -2,7 +2,7 @@
 Demonstrates Nori's permission system.
 
 Agents accept either an allow list OR a deny list (not both) with fnmatch glob support.
-Attempting to call a blocked tool raises PermissionError and halts the run.
+Attempting to call a blocked tool raises ToolPermissionError and halts the run.
 
 Three scenarios:
   1. No restrictions  — all tools available
@@ -10,12 +10,11 @@ Three scenarios:
   3. Deny list        — all tools available except explicitly blocked ones
 """
 
-import config
 import asyncio
 
 from nori import Agent, Permissions
 from nori.audit import AuditLogger
-from nori.exceptions import PermissionError
+from nori.exceptions import ToolToolPermissionError
 from nori.tool import tool
 
 
@@ -89,8 +88,8 @@ async def scenario_allow_list(auditor: AuditLogger):
             "Write 'secret' to /tmp/perm_demo.txt, read it back, then delete it."
         )
         print(f"\nAgent: {result}")
-    except PermissionError as e:
-        print(f"\n  PermissionError: {e}")
+    except ToolPermissionError as e:
+        print(f"\n  ToolPermissionError: {e}")
     print(f"Tool calls attempted: {[tc['name'] for tc in agent.tool_calls]}")
 
 
@@ -112,8 +111,8 @@ async def scenario_deny_list(auditor: AuditLogger):
             "Write 'hello' to /tmp/perm_demo.txt, read it back, then delete it."
         )
         print(f"\nAgent: {result}")
-    except PermissionError as e:
-        print(f"\n  PermissionError: {e}")
+    except ToolPermissionError as e:
+        print(f"\n  ToolPermissionError: {e}")
     print(f"Tool calls attempted: {[tc['name'] for tc in agent.tool_calls]}")
 
 

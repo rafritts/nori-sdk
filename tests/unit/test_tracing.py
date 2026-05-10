@@ -3,7 +3,6 @@ import re
 import uuid
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
 
 from nori import Agent, Model
 from nori.tool import tool
@@ -206,7 +205,7 @@ async def test_audit_events_carry_full_b3_fields(tmp_path):
     await agent.run("go")
     agent.auditor.close()
 
-    lines = [json.loads(l) for l in log_file.read_text().splitlines() if l.strip()]
+    lines = [json.loads(line) for line in log_file.read_text().splitlines() if line.strip()]
     for event in lines:
         assert "trace_id" in event
         assert "span_id" in event
@@ -224,7 +223,7 @@ async def test_tool_span_parent_is_agent_span_id(tmp_path):
     await agent.run("go")
     agent.auditor.close()
 
-    lines = [json.loads(l) for l in log_file.read_text().splitlines() if l.strip()]
+    lines = [json.loads(line) for line in log_file.read_text().splitlines() if line.strip()]
     agent_start = next(e for e in lines if e["event"] == "agent_start")
     tool_calls = [e for e in lines if e["event"] == "tool_call"]
     assert tool_calls

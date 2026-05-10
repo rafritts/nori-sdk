@@ -1,4 +1,7 @@
-import pytest, sqlite3, tempfile, os, sys
+import pytest
+import sqlite3
+import os
+import sys
 
 # Add service to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))

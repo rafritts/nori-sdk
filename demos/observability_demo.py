@@ -8,7 +8,6 @@ Parallel tool calls automatically get call_id correlation in narration and full
 trace_id/span_id/parent_span_id in the audit stream.
 """
 
-import config
 import asyncio
 import json
 import logging

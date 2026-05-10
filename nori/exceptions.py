@@ -6,7 +6,7 @@ class AntiSpinTerminated(Exception):
     pass
 
 
-class PermissionError(Exception):
+class ToolPermissionError(Exception):
     pass
 
 

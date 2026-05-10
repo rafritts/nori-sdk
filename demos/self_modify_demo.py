@@ -11,7 +11,6 @@ Each tier is additive. The agent uses these as regular tools — the model
 decides when and why to invoke them.
 """
 
-import config
 import asyncio
 
 from nori import Agent, SelfModify

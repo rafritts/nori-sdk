@@ -1,12 +1,9 @@
-import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from nori import Agent, Checkpoint, CheckpointScrutiny, Model
-from nori.anti_spin import evaluate_checkpoint
 from nori.exceptions import AntiSpinTerminated
-from nori.tool import tool
 
 
 def make_text_message(content="Done."):

@@ -1,6 +1,5 @@
 from enum import Enum, IntEnum, StrEnum  # noqa: F401
 
-from nori.providers import Provider  # re-exported for backward compat
 
 
 class ResizeMode(IntEnum):

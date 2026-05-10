@@ -1,6 +1,6 @@
 """Tests for Provider.BEDROCK and Model.http_client support."""
 import sys
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 

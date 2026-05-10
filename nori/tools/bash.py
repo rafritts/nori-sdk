@@ -11,4 +11,6 @@ def Bash(command: str) -> ToolResult:
     output = proc.stdout
     if proc.stderr:
         output += f"\n[stderr]\n{proc.stderr}"
+    if proc.returncode != 0:
+        output = f"[exit code: {proc.returncode}]\n" + output
     return ToolResult(result=output)

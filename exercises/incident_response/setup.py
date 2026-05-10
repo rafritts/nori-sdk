@@ -1,4 +1,5 @@
-import sqlite3, os, sys
+import sqlite3
+import os
 
 SERVICE_DIR = os.path.join(os.path.dirname(__file__), "service")
 DB_PATH = os.path.join(SERVICE_DIR, "orders.db")

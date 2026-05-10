@@ -11,7 +11,7 @@ from nori.anti_spin import Checkpoint, evaluate_checkpoint
 import nori.config as config
 from nori.context import ContextFile, inject_summary, update_running_summary
 from nori.enums import ContextRole, Propagation, SelfModify
-from nori.exceptions import AntiSpinTerminated, MaxTurnsExceeded, RunTimeout, ToolTimeout
+from nori.exceptions import AntiSpinTerminated, MaxTurnsExceeded, RunTimeout
 from nori.mcp.server import MCPServer
 from nori.model import Model
 from nori.permissions import Permissions, PermissionGuard
@@ -183,6 +183,10 @@ class Agent:
             props["reason"] = {"type": "string", "description": "Your reason for calling this tool."}
         if "reason" not in required:
             required.append("reason")
+        if "summary" not in props:
+            props["summary"] = {"type": "string", "description": "One-line narration summary of what this tool call found or did."}
+        if "summary" not in required:
+            required.append("summary")
         return schema
 
     # ── Tool interface (Agent as a tool) ─────────────────────────────────────
@@ -211,6 +215,12 @@ class Agent:
         return True
 
     async def __call__(self, task: str, reason: str = "") -> str:
+        _perms = None
+        if self._permissions._allow or self._permissions._deny:
+            _perms = Permissions(
+                allow=self._permissions._allow,
+                deny=self._permissions._deny,
+            )
         sub = Agent(
             name=self.name,
             model=self._model,
@@ -218,18 +228,22 @@ class Agent:
             tools=list(self._tools.values()),
             max_turns=self._max_turns,
             description=self.description,
+            context_files=self._context_files,
+            permissions=_perms,
+            checkpoint=self._checkpoint,
+            self_modify=self._self_modify,
+            summarize_tool_output=self.summarize_tool_output,
+            running_context_summary=self.running_context_summary,
             tool_timeout=self.tool_timeout,
             run_timeout=self.run_timeout,
+            scratchpad=self._scratchpad,
         )
         return await sub.run(task, _trace_id=self._trace_id, _parent_span_id=self._span_id)
 
     def _context_fill(self) -> float:
-        def _content_len(content) -> int:
-            if content is None:
-                return 0
-            return len(str(content))
-        total = sum(_content_len(m.get("content")) for m in self._history)
-        return total / self.max_context_chars if self.max_context_chars else 0.0
+        if not self.max_context_chars:
+            return 0.0
+        return self._prompt_tokens / self.max_context_chars
 
     async def _compact(self, fill: float = 0.0) -> None:
         self._running_summary = await update_running_summary(
@@ -454,10 +468,10 @@ class Agent:
             )
         self._tool_calls_log.append({"name": tc.function.name, "args": args, "result": content})
         self.on_tool_result(tc.function.name, content, tool_call_id, self._trace_id)
-        result: dict = {"role": "tool", "tool_call_id": tc.id, "content": content}
+        tool_msg: dict = {"role": "tool", "tool_call_id": tc.id, "content": content}
         if args.get("remove_from_context_after_read"):
-            result["_strip_after_read"] = True
-        return result
+            tool_msg["_strip_after_read"] = True
+        return tool_msg
 
     async def _execute_tools(self, tool_calls) -> list[dict]:
         is_parallel = len(tool_calls) > 1
@@ -470,8 +484,12 @@ class Agent:
             kwargs["tools"] = self._tool_schemas()
         response = await self._client.chat.completions.create(**kwargs)
         if response.usage:
-            self._prompt_tokens += response.usage.prompt_tokens or 0
-            self._completion_tokens += response.usage.completion_tokens or 0
+            pt = response.usage.prompt_tokens
+            ct = response.usage.completion_tokens
+            if isinstance(pt, int):
+                self._prompt_tokens += pt
+            if isinstance(ct, int):
+                self._completion_tokens += ct
         return response.choices[0].message
 
     # ── QoL properties ────────────────────────────────────────────────────────

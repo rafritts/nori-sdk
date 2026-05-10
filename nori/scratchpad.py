@@ -129,11 +129,12 @@ def _make_owner_tools(pad: "Scratchpad"):
 def _make_propagate_tool(pad: "Scratchpad"):
     """Create a ScratchpadPropagate tool that enables ContextVar-based access for sub-agents."""
     from nori.tool import tool
+    from nori.tools.base import ToolResult
 
     @tool
-    async def ScratchpadPropagate() -> str:
+    async def ScratchpadPropagate() -> ToolResult:
         """Enable scratchpad access for sub-agents spawned from this point forward."""
         _scratchpad_var.set(pad)
-        return "Scratchpad propagation enabled. Sub-agents with ScratchpadRead/ScratchpadWrite can now access it."
+        return ToolResult(result="Scratchpad propagation enabled. Sub-agents with ScratchpadRead/ScratchpadWrite can now access it.")
 
     return ScratchpadPropagate

@@ -20,7 +20,6 @@ Bugs planted in the PR diff:
   delete_user()         — rowcount >= 0 always True (catches zero-row deletes)
 """
 
-import config
 import asyncio
 import textwrap
 

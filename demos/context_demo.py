@@ -14,7 +14,6 @@ Shows:
   2. Forced autocompaction by setting a very small max_context_chars
 """
 
-import config
 import asyncio
 
 from nori import Agent

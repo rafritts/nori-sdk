@@ -9,7 +9,6 @@ Shows:
   2. An agent that gets stuck in a loop — anti-spin fires and halts it
 """
 
-import config
 import asyncio
 
 from nori import Agent, Checkpoint, CheckpointScrutiny

@@ -1,4 +1,3 @@
-import pytest
 
 from nori.tool import tool
 from nori.tools._bound import BoundTool

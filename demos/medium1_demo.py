@@ -1,4 +1,3 @@
-import config
 import asyncio
 
 from nori import Agent
@@ -21,7 +20,8 @@ that includes your findings and a recommendation. Then show me the report.
 
 def plant_junk():
     """Create some suspicious-looking files in /tmp before the agent runs."""
-    import os, subprocess
+    import os
+    import subprocess
     # A few large-ish files with plausible names
     subprocess.run("dd if=/dev/urandom of=/tmp/app_cache_1.bin bs=1M count=5 2>/dev/null", shell=True)
     subprocess.run("dd if=/dev/urandom of=/tmp/app_cache_2.bin bs=1M count=8 2>/dev/null", shell=True)

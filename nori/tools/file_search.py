@@ -16,7 +16,7 @@ def FileSearch(path: str, pattern: str, content: str = "") -> ToolResult:
             capture_output=True,
             text=True,
         )
-        matches = [l for l in proc.stdout.splitlines() if l]
+        matches = [line for line in proc.stdout.splitlines() if line]
     else:
         matches = [str(p) for p in root.rglob(pattern) if p.is_file()]
 

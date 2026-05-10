@@ -8,7 +8,6 @@ Run it:
     python demos/hitl_demo.py
 """
 
-import config  # sets global defaults: model, etc.
 import asyncio
 
 import httpx

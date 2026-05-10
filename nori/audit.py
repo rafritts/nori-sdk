@@ -75,5 +75,11 @@ class AuditLogger:
             agent=agent, fill=round(fill, 3),
         )
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        self.close()
+
     def close(self) -> None:
         self._file.close()

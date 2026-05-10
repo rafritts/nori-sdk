@@ -24,7 +24,6 @@ Environment variables (defaults match docker-compose.yml):
   RETAIL_REDIS_URL  redis://localhost:6379
 """
 
-import config
 import asyncio
 import json
 import os

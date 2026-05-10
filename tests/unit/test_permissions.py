@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from nori import Agent, Model, Permissions
-from nori.exceptions import PermissionError
+from nori.exceptions import ToolPermissionError
 from nori.permissions import PermissionGuard
 from nori.tool import tool
 
@@ -52,7 +52,7 @@ def test_allow_and_deny_raises_at_construction():
 
 def test_denied_tool_raises_permission_error():
     guard = PermissionGuard(allow=None, deny=["bash_tool"])
-    with pytest.raises(PermissionError):
+    with pytest.raises(ToolPermissionError):
         guard.check("bash_tool")
 
 
@@ -63,22 +63,22 @@ def test_allowed_tool_passes():
 
 def test_unlisted_tool_blocked_by_allow():
     guard = PermissionGuard(allow=["bash_tool"], deny=None)
-    with pytest.raises(PermissionError):
+    with pytest.raises(ToolPermissionError):
         guard.check("file_edit_tool")
 
 
 def test_glob_deny():
     guard = PermissionGuard(allow=None, deny=["bash*"])
-    with pytest.raises(PermissionError):
+    with pytest.raises(ToolPermissionError):
         guard.check("bash_tool")
-    with pytest.raises(PermissionError):
+    with pytest.raises(ToolPermissionError):
         guard.check("bash_agent_tool")
 
 
 def test_glob_allow():
     guard = PermissionGuard(allow=["file*"], deny=None)
     guard.check("file_edit_tool")  # should pass
-    with pytest.raises(PermissionError):
+    with pytest.raises(ToolPermissionError):
         guard.check("bash_tool")
 
 
@@ -98,5 +98,5 @@ async def test_denied_tool_raises_in_agent_loop():
             tools=[bash_tool],
             permissions=Permissions(deny=["bash_tool"]),
         )
-        with pytest.raises(PermissionError):
+        with pytest.raises(ToolPermissionError):
             await agent.run("go")

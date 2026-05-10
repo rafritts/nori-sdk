@@ -72,7 +72,7 @@ class Agent:
         self._tools: dict = {self._tool_name(t): t for t in (tools or [])}
         for t in self._tools.values():
             if hasattr(t, "model") and t.model is None:
-                t.model = _d.tool_models.get(type(t)) or model
+                t.model = _d.tool_models.get(t) or _d.tool_models.get(type(t)) or model
         self._permissions = PermissionGuard(
             permissions.allow if permissions else None,
             permissions.deny if permissions else None,

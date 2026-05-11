@@ -55,14 +55,20 @@ async def _run_repl(model, narration: bool, sandbox: bool, initial_prompt: str |
     while True:
         if prompt is None:
             try:
-                prompt = input("\n> ").strip()
-            except (EOFError, KeyboardInterrupt):
+                prompt = input("\n[::] ").strip()
+            except EOFError:
+                print()
+                break
+            except KeyboardInterrupt:
                 print()
                 break
         if not prompt or prompt.lower() in ("exit", "quit"):
             break
-        result = await agent.run(prompt)
-        print(f"\n{result}")
+        try:
+            result = await agent.run(prompt)
+            print(f"\n{result}")
+        except KeyboardInterrupt:
+            print("\n[interrupted]")
         prompt = None
 
 
@@ -99,8 +105,12 @@ def main():
     no_sandbox = args.no_sandbox or os.getenv("NORI_CLI_NO_SANDBOX", "").lower() in ("1", "true", "yes")
     model = _resolve_model(provider, model_id)
 
-    if args.repl:
-        asyncio.run(_run_repl(model, not args.no_narration, not no_sandbox, args.prompt))
-    else:
-        result = asyncio.run(_run_once(model, not args.no_narration, not no_sandbox, args.prompt))
-        print(result)
+    try:
+        if args.repl:
+            asyncio.run(_run_repl(model, not args.no_narration, not no_sandbox, args.prompt))
+        else:
+            result = asyncio.run(_run_once(model, not args.no_narration, not no_sandbox, args.prompt))
+            print(result)
+    except KeyboardInterrupt:
+        print()
+        sys.exit(0)

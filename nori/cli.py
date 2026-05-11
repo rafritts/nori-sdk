@@ -42,7 +42,9 @@ def _make_agent(model, narration: bool, sandbox: bool):
     from nori import Agent
     agent = Agent(
         name="cli",
-        tools=[ApiClient, Bash, BrowserAgent, BrowserClient, CodeRunner, FileEdit, FileSearch, WebClient, WebSearch],
+        tools=[Bash],
+        deferred_tools=[ApiClient, BrowserAgent, BrowserClient, CodeRunner, FileEdit, FileSearch, WebClient, WebSearch],
+        show_tool_stubs=True,
     )
     agent.narration = narration
     return agent

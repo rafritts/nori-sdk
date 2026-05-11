@@ -37,6 +37,8 @@ class Agent:
         model: Model | None = None,
         system_prompt: str = "",
         tools: list = None,
+        deferred_tools: list | dict | None = None,
+        show_tool_stubs: bool = False,
         max_turns: int | None = _UNSET,
         description: str = "",
         context_files: list[ContextFile] = None,
@@ -92,6 +94,7 @@ class Agent:
         self._scratchpad: Scratchpad | None = scratchpad
         self._checkpoint = checkpoint
         self._register_tools(tools, scratchpad, self_modify, _d)
+        self._register_deferred_tools(deferred_tools, show_tool_stubs, _d)
         self.tool_timeout: float | None = tool_timeout
         self.run_timeout: float | None = run_timeout
         self._run_start: float | None = None
@@ -161,6 +164,81 @@ class Agent:
             if scratchpad.propagate == Propagation.DISCRETIONARY:
                 propagate_tool = _make_propagate_tool(scratchpad)
                 self._tools[self._tool_name(propagate_tool)] = propagate_tool
+
+    def _register_deferred_tools(self, deferred_tools, show_tool_stubs: bool, defaults) -> None:
+        self._show_tool_stubs = show_tool_stubs
+        self._deferred_tools: dict[str, object] = {}
+        self._deferred_groups: dict[str, list[str]] = {}
+
+        if not deferred_tools:
+            return
+
+        items = deferred_tools.items() if isinstance(deferred_tools, dict) else [(None, deferred_tools)]
+        for group_name, tool_list in items:
+            names = []
+            for t in tool_list:
+                name = self._tool_name(t)
+                self._deferred_tools[name] = t
+                if hasattr(t, "model") and t.model is None:
+                    t.model = defaults.tool_models.get(t) or defaults.tool_models.get(type(t)) or self._model
+                names.append(name)
+            if group_name is not None:
+                self._deferred_groups[group_name] = names
+
+    def _expand_tool_schema(self) -> dict:
+        tool_list = list(self._deferred_tools.keys())
+        group_list = [f"{g} (group: {', '.join(ns)})" for g, ns in self._deferred_groups.items()]
+        available = ", ".join(tool_list + group_list) or "none"
+        return {
+            "type": "function",
+            "function": {
+                "name": "ExpandTool",
+                "description": f"Load a deferred tool or tool group into your active tool set so you can call it. Available: {available}",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "tool_name": {"type": "string", "description": "Name of the tool or group to expand."},
+                        "reason": {"type": "string", "description": "Your reason for expanding this tool."},
+                    },
+                    "required": ["tool_name", "reason"],
+                },
+            },
+        }
+
+    def _deferred_tools_prompt(self) -> str:
+        lines = ["## Deferred Tools",
+                 "These tools are available but not yet loaded. Call ExpandTool(tool_name) to load one, then call it directly."]
+        for name, t in self._deferred_tools.items():
+            desc = t.schema["function"]["description"].split("\n")[0]
+            lines.append(f"- {name}: {desc}")
+        if self._deferred_groups:
+            lines.append("")
+            lines.append("Groups (expand all tools in a group at once):")
+            for group, names in self._deferred_groups.items():
+                lines.append(f"- {group}: {', '.join(names)}")
+        return "\n".join(lines)
+
+    async def _handle_expand_tool_call(self, tc) -> dict:
+        args = json.loads(tc.function.arguments)
+        name = args.get("tool_name", "").strip()
+
+        if name in self._deferred_groups:
+            expanded = []
+            for tn in self._deferred_groups.pop(name):
+                if tn in self._deferred_tools:
+                    self._tools[tn] = self._deferred_tools.pop(tn)
+                    expanded.append(tn)
+            msg = f"Group '{name}' expanded: {', '.join(expanded)} are now available. Call them directly."
+            return {"role": "tool", "tool_call_id": tc.id, "content": msg}
+
+        if name not in self._deferred_tools:
+            available = list(self._deferred_tools.keys()) + list(self._deferred_groups.keys())
+            return {"role": "tool", "tool_call_id": tc.id,
+                    "content": f"Unknown tool '{name}'. Available: {', '.join(available) or 'none'}"}
+
+        self._tools[name] = self._deferred_tools.pop(name)
+        return {"role": "tool", "tool_call_id": tc.id,
+                "content": f"{name} is now available. Call it directly."}
 
     # ── MCP ───────────────────────────────────────────────────────────────────
 
@@ -359,7 +437,10 @@ class Agent:
         return t.schema["function"]["name"]
 
     def _tool_schemas(self) -> list[dict]:
-        return [t.schema for t in self._tools.values()]
+        schemas = [t.schema for t in self._tools.values()]
+        if self._show_tool_stubs and self._deferred_tools:
+            schemas.append(self._expand_tool_schema())
+        return schemas
 
     def _apply_strips(self) -> None:
         """After a completion, remove ephemeral image content from history."""
@@ -394,6 +475,9 @@ class Agent:
         for cf in self._context_files:
             if cf.role == ContextRole.SYSTEM:
                 system_content += "\n\n" + cf.content
+
+        if self._show_tool_stubs and self._deferred_tools:
+            system_content += "\n\n" + self._deferred_tools_prompt()
 
         messages = [{"role": "system", "content": system_content}]
 
@@ -441,6 +525,8 @@ class Agent:
     async def _invoke_tool(self, tc, is_parallel: bool = False) -> dict:
         if tc.function.name == "Compact":
             return await self._handle_compact_call(tc)
+        if tc.function.name == "ExpandTool":
+            return await self._handle_expand_tool_call(tc)
         self._permissions.check(tc.function.name)
         fn = self._tools[tc.function.name]
         args = json.loads(tc.function.arguments)

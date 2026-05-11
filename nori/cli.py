@@ -87,7 +87,8 @@ async def _run_repl(model, narration: bool, sandbox: bool, initial_prompt: str |
         if not prompt or prompt.lower() in ("exit", "quit"):
             break
         try:
-            result = await _spin_while(agent.run(prompt))
+            run = agent.run(prompt)
+            result = await (_spin_while(run) if not narration else run)
             print(f"\n{result}")
         except KeyboardInterrupt:
             print("\n[interrupted]")

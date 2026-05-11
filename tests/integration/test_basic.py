@@ -1,19 +1,19 @@
 """
-Integration tests — run against a local Ollama instance.
+Integration tests — run against the XAI API (grok-4.3).
 Run with: uv run pytest tests/integration/ -v
+Requires XAI_API_KEY in the environment.
 """
 import pytest
 
-from nori import Agent, Model, Provider
+import config
+from nori import Agent
 from nori.tool import tool
-
-OLLAMA_MODEL = Model(id="gemma4:31b", provider=Provider.OLLAMA)
 
 
 @pytest.mark.asyncio
 async def test_single_completion():
     """Single completion returns a non-empty string."""
-    agent = Agent(name="Test", model=OLLAMA_MODEL, system_prompt="You are a helpful assistant.")
+    agent = Agent(name="Test", model=config.MAIN_MODEL, system_prompt="You are a helpful assistant.")
     result = await agent.run("Say hello.")
     assert isinstance(result, str)
     assert len(result) > 0
@@ -29,7 +29,7 @@ async def test_tool_calling_loop():
 
     agent = Agent(
         name="WeatherAgent",
-        model=OLLAMA_MODEL,
+        model=config.MAIN_MODEL,
         system_prompt="You are a helpful assistant. Use tools when needed.",
         tools=[get_weather],
     )

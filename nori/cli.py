@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
 def _resolve_model(provider_str: str, model_str: str):
     from nori.model import Model
     from nori.providers import Provider
@@ -21,11 +22,11 @@ def _resolve_model(provider_str: str, model_str: str):
     return Model(id=model_str, provider=provider)
 
 
-async def _run(prompt: str, model, narration: bool, sandbox: bool) -> str:
+def _make_agent(model, narration: bool, sandbox: bool):
     import nori
+    from nori.tools._sandbox import sandbox_dir as _sandbox_dir
     from nori.tools.api_client import ApiClient
     from nori.tools.bash import Bash
-    from nori.tools._sandbox import sandbox_dir as _sandbox_dir
     from nori.tools.browser import BrowserAgent, BrowserClient
     from nori.tools.code_runner import CodeRunner
     from nori.tools.file_edit import FileEdit
@@ -44,17 +45,44 @@ async def _run(prompt: str, model, narration: bool, sandbox: bool) -> str:
         tools=[ApiClient, Bash, BrowserAgent, BrowserClient, CodeRunner, FileEdit, FileSearch, WebClient, WebSearch],
     )
     agent.narration = narration
+    return agent
+
+
+async def _run_repl(model, narration: bool, sandbox: bool, initial_prompt: str | None):
+    agent = _make_agent(model, narration, sandbox)
+    prompt = initial_prompt
+
+    while True:
+        if prompt is None:
+            try:
+                prompt = input("\n> ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                break
+        if not prompt or prompt.lower() in ("exit", "quit"):
+            break
+        result = await agent.run(prompt)
+        print(f"\n{result}")
+        prompt = None
+
+
+async def _run_once(model, narration: bool, sandbox: bool, prompt: str) -> str:
+    agent = _make_agent(model, narration, sandbox)
     return await agent.run(prompt)
 
 
 def main():
     parser = argparse.ArgumentParser(prog="nori", description="Run a Nori agent from the command line.")
-    parser.add_argument("prompt", help="The prompt to send to the agent.")
+    parser.add_argument("prompt", nargs="?", default=None, help="The prompt to send to the agent.")
     parser.add_argument("--provider", default=None, help="Provider name (e.g. xai, openai, anthropic).")
     parser.add_argument("--model", default=None, help="Model ID (e.g. grok-4.3).")
     parser.add_argument("--no-narration", action="store_true", default=False, help="Suppress agent narration.")
-    parser.add_argument("--no-sandbox", action="store_true", default=False, help="Allow Bash to access paths outside the current directory.")
+    parser.add_argument("--no-sandbox", action="store_true", default=False, help="Allow tools to access paths outside the current directory.")
+    parser.add_argument("--repl", action="store_true", default=False, help="Stay in a conversation loop after each response.")
     args = parser.parse_args()
+
+    if not args.repl and args.prompt is None:
+        parser.error("prompt is required unless --repl is set")
 
     provider = args.provider or os.getenv("NORI_CLI_PROVIDER")
     model_id = args.model or os.getenv("NORI_CLI_MODEL")
@@ -70,5 +98,9 @@ def main():
 
     no_sandbox = args.no_sandbox or os.getenv("NORI_CLI_NO_SANDBOX", "").lower() in ("1", "true", "yes")
     model = _resolve_model(provider, model_id)
-    result = asyncio.run(_run(args.prompt, model, not args.no_narration, not no_sandbox))
-    print(result)
+
+    if args.repl:
+        asyncio.run(_run_repl(model, not args.no_narration, not no_sandbox, args.prompt))
+    else:
+        result = asyncio.run(_run_once(model, not args.no_narration, not no_sandbox, args.prompt))
+        print(result)

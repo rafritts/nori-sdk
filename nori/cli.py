@@ -59,7 +59,7 @@ async def _spin_while(coro):
             sys.stderr.flush()
             i += 1
             await asyncio.sleep(0.1)
-        sys.stderr.write("\r[::]\r")
+        sys.stderr.write("\r\033[K")
         sys.stderr.flush()
 
     spin_task = asyncio.create_task(spin())
@@ -72,6 +72,15 @@ async def _spin_while(coro):
 
 async def _run_repl(model, narration: bool, sandbox: bool, initial_prompt: str | None):
     agent = _make_agent(model, narration, sandbox)
+
+    if narration:
+        original_narrator = agent.on_narration
+        def _clearing_narrator(msg):
+            sys.stderr.write("\r\033[K")
+            sys.stderr.flush()
+            original_narrator(msg)
+        agent.on_narration = _clearing_narrator
+
     prompt = initial_prompt
 
     while True:
@@ -87,8 +96,7 @@ async def _run_repl(model, narration: bool, sandbox: bool, initial_prompt: str |
         if not prompt or prompt.lower() in ("exit", "quit"):
             break
         try:
-            run = agent.run(prompt)
-            result = await (_spin_while(run) if not narration else run)
+            result = await _spin_while(agent.run(prompt))
             print(f"\n{result}")
         except KeyboardInterrupt:
             print("\n[interrupted]")

@@ -23,16 +23,21 @@ def _resolve_model(provider_str: str, model_str: str):
 
 async def _run(prompt: str, model, narration: bool) -> str:
     import nori
-    from nori.tools.web_search import WebSearch
     from nori.tools.api_client import ApiClient
+    from nori.tools.bash import Bash
+    from nori.tools.browser import BrowserAgent, BrowserClient
+    from nori.tools.code_runner import CodeRunner
+    from nori.tools.file_edit import FileEdit
+    from nori.tools.file_search import FileSearch
     from nori.tools.web_client import WebClient
+    from nori.tools.web_search import WebSearch
 
     nori.configure(model=model)
 
     from nori import Agent
     agent = Agent(
         name="cli",
-        tools=[WebSearch, ApiClient, WebClient],
+        tools=[ApiClient, Bash, BrowserAgent, BrowserClient, CodeRunner, FileEdit, FileSearch, WebClient, WebSearch],
     )
     agent.narration = narration
     return await agent.run(prompt)

@@ -21,16 +21,19 @@ def _resolve_model(provider_str: str, model_str: str):
     return Model(id=model_str, provider=provider)
 
 
-async def _run(prompt: str, model, narration: bool) -> str:
+async def _run(prompt: str, model, narration: bool, sandbox: bool) -> str:
     import nori
     from nori.tools.api_client import ApiClient
-    from nori.tools.bash import Bash
+    from nori.tools.bash import Bash, _bash_sandbox_dir
     from nori.tools.browser import BrowserAgent, BrowserClient
     from nori.tools.code_runner import CodeRunner
     from nori.tools.file_edit import FileEdit
     from nori.tools.file_search import FileSearch
     from nori.tools.web_client import WebClient
     from nori.tools.web_search import WebSearch
+
+    if sandbox:
+        _bash_sandbox_dir.set(os.getcwd())
 
     nori.configure(model=model)
 
@@ -49,6 +52,7 @@ def main():
     parser.add_argument("--provider", default=None, help="Provider name (e.g. xai, openai, anthropic).")
     parser.add_argument("--model", default=None, help="Model ID (e.g. grok-4.3).")
     parser.add_argument("--no-narration", action="store_true", default=False, help="Suppress agent narration.")
+    parser.add_argument("--no-sandbox", action="store_true", default=False, help="Allow Bash to access paths outside the current directory.")
     args = parser.parse_args()
 
     provider = args.provider or os.getenv("NORI_CLI_PROVIDER")
@@ -64,5 +68,5 @@ def main():
         sys.exit(1)
 
     model = _resolve_model(provider, model_id)
-    result = asyncio.run(_run(args.prompt, model, not args.no_narration))
+    result = asyncio.run(_run(args.prompt, model, not args.no_narration, not args.no_sandbox))
     print(result)

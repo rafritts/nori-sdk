@@ -49,7 +49,7 @@ def _make_agent(model, narration: bool, sandbox: bool):
 
 
 async def _spin_while(coro):
-    frames = ["/", "|", "\\", "-"]
+    frames = ["/", "|", "\\", "—"]
     done = asyncio.Event()
 
     async def spin():

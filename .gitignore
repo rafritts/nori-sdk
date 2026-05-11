@@ -18,3 +18,15 @@ htmlcov/
 # Logs
 *.log
 logs/
+
+# Type checking
+.mypy_cache/
+
+# Databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Exercise runtime output
+scratchpad_audit.json
+exercises/**/postmortem.md

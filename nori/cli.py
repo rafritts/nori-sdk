@@ -43,7 +43,7 @@ def main():
     parser.add_argument("prompt", help="The prompt to send to the agent.")
     parser.add_argument("--provider", default=None, help="Provider name (e.g. xai, openai, anthropic).")
     parser.add_argument("--model", default=None, help="Model ID (e.g. grok-4.3).")
-    parser.add_argument("--narration", action="store_true", default=False, help="Print agent narration to stderr.")
+    parser.add_argument("--no-narration", action="store_true", default=False, help="Suppress agent narration.")
     args = parser.parse_args()
 
     provider = args.provider or os.getenv("NORI_CLI_PROVIDER")
@@ -59,5 +59,5 @@ def main():
         sys.exit(1)
 
     model = _resolve_model(provider, model_id)
-    result = asyncio.run(_run(args.prompt, model, args.narration))
+    result = asyncio.run(_run(args.prompt, model, not args.no_narration))
     print(result)

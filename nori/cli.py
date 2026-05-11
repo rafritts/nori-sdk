@@ -24,7 +24,8 @@ def _resolve_model(provider_str: str, model_str: str):
 async def _run(prompt: str, model, narration: bool, sandbox: bool) -> str:
     import nori
     from nori.tools.api_client import ApiClient
-    from nori.tools.bash import Bash, _bash_sandbox_dir
+    from nori.tools.bash import Bash
+    from nori.tools._sandbox import sandbox_dir as _sandbox_dir
     from nori.tools.browser import BrowserAgent, BrowserClient
     from nori.tools.code_runner import CodeRunner
     from nori.tools.file_edit import FileEdit
@@ -33,7 +34,7 @@ async def _run(prompt: str, model, narration: bool, sandbox: bool) -> str:
     from nori.tools.web_search import WebSearch
 
     if sandbox:
-        _bash_sandbox_dir.set(os.getcwd())
+        _sandbox_dir.set(os.getcwd())
 
     nori.configure(model=model)
 

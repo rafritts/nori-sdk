@@ -2,11 +2,17 @@ from pathlib import Path
 
 from nori.tool import tool
 from nori.tools.base import ToolResult
+from nori.tools._sandbox import sandbox_dir, check_path
 
 
 @tool
 def FileEdit(path: str, old_content: str, new_content: str) -> ToolResult:
     """Replace old_content with new_content in the file at path."""
+    allowed = sandbox_dir.get()
+    if allowed:
+        error = check_path(path, allowed)
+        if error:
+            return ToolResult(result=f"[error]\n{error}")
     file = Path(path)
     try:
         text = file.read_text()

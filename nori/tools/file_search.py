@@ -3,11 +3,17 @@ from pathlib import Path
 
 from nori.tool import tool
 from nori.tools.base import ToolResult
+from nori.tools._sandbox import sandbox_dir, check_path
 
 
 @tool
 def FileSearch(path: str, pattern: str, content: str = "") -> ToolResult:
     """Find files under path matching a filename pattern or containing content."""
+    allowed = sandbox_dir.get()
+    if allowed:
+        error = check_path(path, allowed)
+        if error:
+            return ToolResult(result=f"[error]\n{error}")
     root = Path(path)
 
     if content:

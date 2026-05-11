@@ -77,11 +77,17 @@ def make_view_image(model: Model):
         ) -> "ToolResult":
             from nori.image import Image
             from nori.tools.base import ToolResult
+            from nori.tools._sandbox import sandbox_dir, check_path
 
             kwargs = {"detail": detail, "resize": resize}
             if path.startswith("http://") or path.startswith("https://"):
                 img = Image(url=path, **kwargs)
             else:
+                allowed = sandbox_dir.get()
+                if allowed:
+                    error = check_path(path, allowed)
+                    if error:
+                        return ToolResult(result=f"[error]\n{error}")
                 img = Image(path=path, **kwargs)
 
             content = [

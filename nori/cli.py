@@ -7,10 +7,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-_DEFAULT_PROVIDER = "xai"
-_DEFAULT_MODEL = "grok-4.3"
-
-
 def _resolve_model(provider_str: str, model_str: str):
     from nori.model import Model
     from nori.providers import Provider
@@ -48,8 +44,17 @@ def main():
     parser.add_argument("--model", default=None, help="Model ID (e.g. grok-4.3).")
     args = parser.parse_args()
 
-    provider = args.provider or os.getenv("NORI_PROVIDER") or _DEFAULT_PROVIDER
-    model_id = args.model or os.getenv("NORI_MODEL") or _DEFAULT_MODEL
+    provider = args.provider or os.getenv("NORI_PROVIDER")
+    model_id = args.model or os.getenv("NORI_MODEL")
+
+    if not provider or not model_id:
+        print(
+            "Error: provider and model are required.\n"
+            "Set NORI_PROVIDER and NORI_MODEL in your .env, or use --provider and --model flags.\n"
+            "Example: nori --provider xai --model grok-4.3 \"your prompt\"",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     model = _resolve_model(provider, model_id)
     result = asyncio.run(_run(args.prompt, model))

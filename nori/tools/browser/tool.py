@@ -1,4 +1,4 @@
-"""BrowserUse tool — drives a Playwright browser with an LLM decision loop."""
+"""BrowserAgent tool — drives a Playwright browser with an LLM decision loop."""
 
 import json
 import logging
@@ -113,7 +113,7 @@ async def _decide(
 
 
 @tool
-async def BrowserUse(task: str) -> ToolResult:
+async def BrowserAgent(task: str) -> ToolResult:
     """Navigate a web browser to complete a task. Handles JS-rendered pages, login flows, form fills, and multi-step interactions."""
     try:
         from playwright.async_api import async_playwright
@@ -121,7 +121,7 @@ async def BrowserUse(task: str) -> ToolResult:
         return ToolResult(result="playwright is not installed: run `uv add playwright && playwright install chromium`")
 
     _d = config.get_defaults()
-    model = _d.tool_models.get(BrowserUse) or _d.model
+    model = _d.tool_models.get(BrowserAgent) or _d.model
     if model is None:
         return ToolResult(result="no model configured — call nori.configure(model=...) first")
 

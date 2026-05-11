@@ -1,3 +1,4 @@
-from nori.tools.browser.tool import BrowserUse
+from nori.tools.browser.client import BrowserClient
+from nori.tools.browser.tool import BrowserAgent
 
-__all__ = ["BrowserUse"]
+__all__ = ["BrowserAgent", "BrowserClient"]

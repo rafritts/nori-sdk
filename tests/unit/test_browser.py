@@ -1,4 +1,4 @@
-"""Unit tests for BrowserUse tool modules (no live browser required)."""
+"""Unit tests for BrowserAgent/BrowserClient tool modules (no live browser required)."""
 
 import base64
 import json
@@ -161,6 +161,44 @@ async def test_execute_action_navigate_missing_url_returns_error():
     page = MagicMock()
     err = await execute_action(page, {"action": "navigate", "url": ""}, [])
     assert err is not None
+
+
+# ── parser ───────────────────────────────────────────────────────────────────
+
+def test_parser_strips_scripts_and_styles():
+    from nori.tools.browser.parser import html_to_text
+    html = "<html><body><script>alert(1)</script><style>body{}</style><p>Hello world</p></body></html>"
+    result = html_to_text(html)
+    assert "Hello world" in result
+    assert "alert" not in result
+    assert "body{}" not in result
+
+def test_parser_strips_nav_and_footer():
+    from nori.tools.browser.parser import html_to_text
+    html = "<html><body><nav>Menu</nav><main><p>Content</p></main><footer>Footer</footer></body></html>"
+    result = html_to_text(html)
+    assert "Content" in result
+    assert "Menu" not in result
+    assert "Footer" not in result
+
+def test_parser_collapses_blank_lines():
+    from nori.tools.browser.parser import html_to_text
+    html = "<html><body><p>A</p><p></p><p></p><p>B</p></body></html>"
+    result = html_to_text(html)
+    assert "\n\n\n" not in result
+
+def test_parser_truncates_long_output():
+    from nori.tools.browser.parser import html_to_text, _MAX_CHARS
+    long_text = "x " * 10_000
+    html = f"<html><body><p>{long_text}</p></body></html>"
+    result = html_to_text(html)
+    assert len(result) <= _MAX_CHARS + 100  # small buffer for truncation message
+    assert "truncated" in result
+
+def test_parser_empty_html_returns_empty():
+    from nori.tools.browser.parser import html_to_text
+    result = html_to_text("<html><body></body></html>")
+    assert result == ""
 
 @pytest.mark.asyncio
 async def test_execute_action_wait_clamps_to_5s():

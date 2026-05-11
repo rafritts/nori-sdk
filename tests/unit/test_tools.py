@@ -90,11 +90,11 @@ async def test_file_search_no_match_returns_empty(tmp_path):
     assert result.result == "No matches found."
 
 
-# ── WebClient ─────────────────────────────────────────────────────────────────
+# ── ApiClient ─────────────────────────────────────────────────────────────────
 
-async def test_web_client_returns_response_body():
+async def test_api_client_returns_response_body():
     from unittest.mock import AsyncMock, MagicMock, patch
-    from nori.tools.web_client import WebClient
+    from nori.tools.api_client import ApiClient
 
     mock_response = MagicMock()
     mock_response.status_code = 200
@@ -106,13 +106,13 @@ async def test_web_client_returns_response_body():
     mock_client.__aexit__ = AsyncMock(return_value=False)
 
     with patch("httpx.AsyncClient", return_value=mock_client):
-        result = await WebClient(url="http://example.com", reason="r")
+        result = await ApiClient(url="http://example.com", reason="r")
     assert "Hello from server" in result.result
 
 
-async def test_web_client_http_error_returns_status():
+async def test_api_client_http_error_returns_status():
     from unittest.mock import AsyncMock, MagicMock, patch
-    from nori.tools.web_client import WebClient
+    from nori.tools.api_client import ApiClient
 
     mock_response = MagicMock()
     mock_response.status_code = 404
@@ -124,13 +124,13 @@ async def test_web_client_http_error_returns_status():
     mock_client.__aexit__ = AsyncMock(return_value=False)
 
     with patch("httpx.AsyncClient", return_value=mock_client):
-        result = await WebClient(url="http://example.com/missing", reason="r")
+        result = await ApiClient(url="http://example.com/missing", reason="r")
     assert "404" in result.result
 
 
-async def test_web_client_method_passed_through():
+async def test_api_client_method_passed_through():
     from unittest.mock import AsyncMock, MagicMock, patch
-    from nori.tools.web_client import WebClient
+    from nori.tools.api_client import ApiClient
 
     mock_response = MagicMock()
     mock_response.status_code = 200
@@ -142,7 +142,7 @@ async def test_web_client_method_passed_through():
     mock_client.__aexit__ = AsyncMock(return_value=False)
 
     with patch("httpx.AsyncClient", return_value=mock_client):
-        await WebClient(url="http://example.com", method="POST", body="data", reason="r")
+        await ApiClient(url="http://example.com", method="POST", body="data", reason="r")
     call_kwargs = mock_client.request.call_args
     assert call_kwargs.args[0] == "POST"
 

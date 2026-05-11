@@ -1,22 +1,100 @@
-# SPEC-11: Browser Tool
+# SPEC-11: Web & Browser Tool Suite
 
 ## Motivation
 
-Existing browser automation tools for LLMs are token-expensive and often unreliable. The core problem: they either dump full-page screenshots at every step (expensive vision tokens) or send raw HTML (megabytes of noise). Both approaches give the model too much irrelevant data and too little actionable structure.
-
-This spec describes a browser tool that inverts the default: **structured element extraction first, targeted vision on demand**. The LLM sees a compact JSON list of interactive elements and asks for a cropped, element-scoped screenshot only when it genuinely needs visual context. Full-page screenshots are an explicit escape hatch, not the default.
+Web interaction for LLM agents requires different tools at different cost/capability levels. A single "browser tool" is the wrong abstraction — fetching a REST API, scraping a news site, and driving a multi-step login flow are fundamentally different problems. This spec defines a four-tool hierarchy that lets agents (and users) pick the right tool for the job.
 
 ---
 
-## Architecture Overview
+## Tool Hierarchy
 
-`BrowserUse(task)` is a single high-level tool. Internally it runs a Playwright-backed agent loop:
+```
+ApiClient    — raw HTTP, all methods/headers/auth. For APIs.
+WebClient    — httpx GET + BeautifulSoup. For plain HTML sites.
+BrowserClient — Playwright + BeautifulSoup. For JS-rendered sites.
+BrowserAgent  — Playwright + LLM loop + targeted vision. For multi-step tasks.
+```
+
+Each level is strictly more capable and more expensive than the one above it. Agents should always use the cheapest tool that can do the job.
+
+| Tool | JS hydration | LLM loop | Vision | Cost |
+|---|---|---|---|---|
+| `ApiClient` | no | no | no | cheapest |
+| `WebClient` | no | no | no | cheap |
+| `BrowserClient` | yes | no | no | moderate |
+| `BrowserAgent` | yes | yes | on-demand | most expensive |
+
+---
+
+## ApiClient
+
+Raw HTTP client. Does everything `httpx` can do: all methods, custom headers, auth, JSON/form bodies, arbitrary content types. Returns the raw response body and status code.
+
+**Use when:** the target has a real API, or you need full control over the request.
+
+```python
+ApiClient(url="https://api.example.com/users", method="POST", body='{"name":"Ryan"}')
+```
+
+Previously named `WebClient`. Renamed to reflect its actual purpose.
+
+---
+
+## WebClient
+
+`httpx` GET + BeautifulSoup. Fetches the raw HTML response and strips noise (scripts, styles, nav, footer, ads) to return clean readable text.
+
+**Use when:** the target is a plain HTML site and the content is in the initial response. HN, Wikipedia, documentation, most blogs.
+
+**Not for:** JS-rendered pages — content that only appears after JavaScript runs will be missing.
+
+```python
+WebClient(url="https://news.ycombinator.com")
+# → clean text: story titles, scores, user names
+```
+
+---
+
+## BrowserClient
+
+Playwright loads the URL, waits for hydration (`networkidle`), then BeautifulSoup parses the fully-rendered HTML to return clean text.
+
+**Use when:** the site requires JS to render its content, but the task is read-only (extract, don't interact). GitHub READMEs, React-rendered content, SPAs that populate on load.
+
+**Not for:** multi-step tasks, form fills, login flows, anything requiring clicks.
+
+```python
+BrowserClient(url="https://github.com/anthropics/anthropic-sdk-python")
+# → clean text: README, repo description, etc.
+```
+
+---
+
+## BrowserAgent
+
+Playwright + LLM decision loop + targeted element-scoped vision. Takes a natural-language task, navigates a browser autonomously, and returns the result.
+
+**Use when:** the task requires interaction — clicking, typing, navigating between pages, logging in. Google Search, GitHub issues, any multi-step flow.
+
+```python
+BrowserAgent(task="Go to github.com/anthropics/anthropic-sdk-python, find the latest open issue, and return its title and first comment.")
+```
+
+### Architecture
+
+`BrowserAgent` is a `@tool` that manages its own LLM message loop internally. It does not use a Nori `Agent` sub-instance.
+
+**Why not a sub-Agent with primitive browser tools?**
+
+The targeted screenshot feature requires injecting image content as `role=user` messages directly into the LLM conversation stream. The OpenAI API only supports images in user messages, not tool result messages — so a screenshot result cannot be returned from a `@tool` and seen as an image by the calling model. `BrowserAgent` manages its own message list and can inject vision content at the right point in the loop. This is a known constraint of the current `ToolResult` architecture; a future enhancement to `ToolResult` to support image content would enable the sub-Agent pattern.
+
+### Loop
 
 ```
 task prompt
     │
     ▼
-Navigate + wait for hydration
+Navigate + wait for hydration (networkidle, 8s timeout)
     │
     ▼
 Extract interactive elements → compact JSON (with bounding boxes + stable IDs)
@@ -24,16 +102,14 @@ Extract interactive elements → compact JSON (with bounding boxes + stable IDs)
     ▼
 LLM receives: task + element JSON [+ prior action history]
     │
-    ├─→ act: click / type / scroll / navigate / done / fail
+    ├─→ act: click / type / scroll / navigate / wait / done / fail
     │       │
-    │       └─→ execute → loop back to extract
+    │       └─→ execute → hydrate if navigation → loop back to extract
     │
-    └─→ screenshot(element_id)   ← targeted crop, highlighted
+    └─→ screenshot(element_ids)   ← 1–4 element crops → 2×2 composite
             │
-            └─→ LLM receives element crop → acts → loop back to extract
+            └─→ LLM receives composite image → acts → no step count increment
 ```
-
-The loop terminates when the LLM emits `done(result)` or `fail(reason)`, or when a step limit is reached.
 
 ---
 
@@ -55,200 +131,120 @@ a, button, input, select, textarea,
   "tag": "button",
   "text": "Sign in",
   "type": "submit",
-  "href": null,
-  "placeholder": null,
   "aria_label": "Sign in to your account",
-  "name": null,
   "bbox": { "x": 840, "y": 412, "w": 120, "h": 40 }
 }
 ```
 
-- `id` — stable within a loop iteration, used by the LLM to reference elements in actions
-- `bbox` — always included; used for targeted screenshots and scroll-into-view
-- Fields that don't apply to a tag are `null` and omitted from the JSON output to save tokens
+- `id` — stable within a loop iteration only; never carry IDs across steps
+- `bbox` — used for mouse targeting and screenshot crops
+- Null fields are omitted to keep the JSON compact
 
 ### Filtering
 
-**Hidden elements:** skip if `display: none`, `visibility: hidden`, `opacity: 0`, or bounding box is zero-dimension.
-
-**Tracking/analytics links:** for `<a>` tags, check `href` against a blocklist of known tracking domains and patterns (Google Analytics, Facebook Pixel, Hotjar, Segment, Mixpanel, Twitter/X pixel, etc.). The blocklist lives in `nori/tools/browser/blocklist.py` as a frozenset of domain fragments.
-
-**Duplicate suppression:** if multiple elements have identical text + tag + href, keep the first occurrence.
-
-**Cap:** maximum 60 elements per extraction. If more exist, prioritize: inputs first, then buttons, then links in DOM order.
+- **Hidden elements:** skip `display:none`, `visibility:hidden`, `opacity:0`, zero bounding box
+- **Tracking links:** `href` checked against blocklist in `blocklist.py` (Google Analytics, Meta Pixel, Hotjar, etc.)
+- **Duplicates:** same tag + text + href → keep first
+- **Cap:** 60 elements per extraction, inputs first then buttons then links
 
 ---
 
-## LLM Action Schema
-
-The internal LLM responds with a single JSON action per turn. The tool parses and executes it.
+## LLM Action Schema (BrowserAgent)
 
 ```json
-{ "action": "click",       "element_id": "el_3" }
-{ "action": "type",        "element_id": "el_7", "text": "myusername" }
-{ "action": "select",      "element_id": "el_2", "value": "United States" }
-{ "action": "scroll",      "direction": "down",  "px": 400 }
-{ "action": "navigate",    "url": "https://example.com/page" }
-{ "action": "screenshot",  "element_ids": ["el_3", "el_7"] }
+{ "action": "navigate",        "url": "https://..." }
+{ "action": "click",           "element_id": "el_N" }
+{ "action": "type",            "element_id": "el_N", "text": "..." }
+{ "action": "select",          "element_id": "el_N", "value": "..." }
+{ "action": "scroll",          "direction": "down",  "px": 400 }
+{ "action": "wait",            "ms": 1500 }
+{ "action": "screenshot",      "element_ids": ["el_N", ...] }
 { "action": "screenshot_page" }
-{ "action": "wait",        "ms": 1500 }
-{ "action": "done",        "result": "Notifications: ..." }
-{ "action": "fail",        "reason": "Could not locate login form after 3 attempts" }
+{ "action": "done",            "result": "..." }
+{ "action": "fail",            "reason": "..." }
 ```
 
-- `screenshot(element_ids)` — targeted crops of 1–4 elements, stitched into a single composite image (see below). Does not advance the loop; the LLM receives the composite and must then emit an action.
-- `screenshot_page` — full viewport screenshot. Explicit escape hatch for when the element list is semantically useless (e.g., all `div.sc-abc123` with no readable labels) and layout context is the only way forward. Logged as a warning (token cost signal).
-- `wait` — for pages that hydrate slowly after a click (e.g., SPA route transitions).
-
-### System prompt for the internal LLM
-
-The system prompt instructs the model to:
-- Prefer acting on the element list without requesting a screenshot
-- Request `screenshot(element_ids)` when specific elements are ambiguous — up to 4 at once; batch related elements into one request rather than asking sequentially
-- Use `screenshot_page` only when the entire element list is unreadable noise (no semantic labels anywhere) and spatial layout is the only remaining signal
-- Element IDs are valid only for the current extraction — never reference an ID from a prior step
-- Emit `done` as soon as the original task is complete — don't explore beyond what was asked
-- Emit `fail` rather than looping indefinitely if the task cannot be completed
+`screenshot` does not advance the step counter. `screenshot_page` is the full-viewport escape hatch — logged as a warning for token cost visibility.
 
 ---
 
 ## Targeted Screenshot Mechanics
 
-### Crop palette
+### Color palette
 
-Four fixed highlight colors, assigned in request order:
-
-| Slot | Color   | Hex       |
-|------|---------|-----------|
-| 1    | Red     | `#FF3B30` |
-| 2    | Blue    | `#007AFF` |
-| 3    | Green   | `#34C759` |
-| 4    | Orange  | `#FF9500` |
+| Slot | Color  | Hex       |
+|------|--------|-----------|
+| 1    | Red    | `#FF3B30` |
+| 2    | Blue   | `#007AFF` |
+| 3    | Green  | `#34C759` |
+| 4    | Orange | `#FF9500` |
 
 ### Per-element crop
 
-For each requested `element_id`:
+For each element in the request (max 4):
+1. Get `bbox` from current element list
+2. Expand by 60px padding, clip to viewport
+3. `page.screenshot(clip=...)` → PNG
+4. Draw colored border (4px) on the crop via Pillow — no DOM mutation
+5. Scale to max 400px on longest dimension
 
-1. Look up `bbox` in the current element list
-2. Inject CSS: `outline: 3px solid <color>; outline-offset: 2px` on the element
-3. Compute crop region: `bbox` expanded by **60px padding** on all sides, clipped to viewport bounds
-4. Capture via `page.screenshot(clip=crop_region, type="png")`
-5. Remove the injected CSS
-6. Scale the crop so its longest dimension is at most **400px** (preserves readability, controls token cost)
+### Composite
 
-### Composite image
-
-Crops are stitched into a single image using a **grid layout**:
-
-- 1 element → 1×1 (single image, no grid overhead)
-- 2 elements → 1×2 (side by side)
-- 3 elements → 2×2 with bottom-right cell empty
-- 4 elements → 2×2
-
-Each cell is padded to a uniform size (the largest crop's dimensions) with a neutral background. A thin label strip below each cell shows `el_N` in the matching highlight color.
-
-The composite is returned as a single base64 PNG. The tool also returns a plaintext legend alongside the image:
-
-```
-el_3 = red    | Sign in button (bottom of form)
-el_7 = blue   | Username input
-el_12 = green | "Notifications" div — text visible but class is sc-xr99t2
-```
-
-The LLM receives both and can reason about all four elements in one vision pass.
-
-### Full page screenshot
-
-`screenshot_page` captures the current viewport only (not the full scrollable page). Resize to max 1280px wide. This is still expensive but bounded.
+Grid layout stitched by `compositor.py`:
+- 1 → 1×1, 2 → 1×2, 3–4 → 2×2 (empty cell for 3)
+- Dark background, 6px gap between cells
+- Plaintext legend returned alongside: `el_3=red, el_7=blue`
 
 ---
 
-## Hydration Waiting
+## BeautifulSoup Parsing (WebClient + BrowserClient)
 
-After every navigation or click that triggers a page transition:
+After fetching HTML (via httpx or Playwright), shared parse logic in `nori/tools/browser/parser.py`:
 
-1. `page.wait_for_load_state("domcontentloaded")`
-2. `page.wait_for_load_state("networkidle", timeout=8000)` — catches SPA hydration; timeout is generous but capped
-3. If `networkidle` times out, proceed anyway — the page is probably usable
-
-After a `type` or `select` action, no wait (assume the page doesn't reload).
-After a `click` on a non-navigation button (e.g., form submit), use `networkidle` with a shorter timeout (3000ms), then proceed.
-
----
-
-## Session and State
-
-Each `BrowserUse` call gets a fresh Playwright `BrowserContext` — isolated cookies, storage, and cache. This is safe by default: no cross-task credential leakage.
-
-Within a single call, state persists across the loop: cookies set during login are available for subsequent navigation steps.
-
-**Browser lifecycle:** a single Playwright `Browser` instance is shared within an agent run (lazy-initialized, closed on agent teardown). Creating a new browser per tool call is too slow (~1s overhead).
-
----
-
-## Configuration
-
-```python
-BrowserUse(
-    task="Log into example.com and return my notification count.",
-    headless=True,          # default True; False for debugging
-    max_steps=20,           # loop step limit; default 20
-    viewport=(1280, 800),   # default
-    timeout_ms=30_000,      # per-action timeout
-)
-```
-
-`headless`, `viewport`, and `timeout_ms` can also be set via `Config.browser` defaults (follows the existing config pattern from SPEC-05).
+1. Parse with `lxml` backend
+2. Decompose: `script`, `style`, `nav`, `header`, `footer`, `aside`, `noscript`, `[class*="cookie"]`, `[class*="banner"]`
+3. `get_text(separator="\n", strip=True)`
+4. Collapse consecutive blank lines
+5. Cap output at 8 000 characters (agents can request specific sections if more is needed)
 
 ---
 
 ## Dependencies
 
-- `playwright` (Python) — async API, Chromium backend
-- `Pillow` — for image resizing before base64 encoding
-
-Installation note: `playwright install chromium` must be run after `uv add playwright`. This is a one-time setup step. The tool raises a clear `RuntimeError` with instructions if Playwright binaries are not found.
+- `playwright` — Playwright Python async API
+- `pillow` — image crop, resize, composite
+- `beautifulsoup4` — HTML parsing for WebClient and BrowserClient
+- `lxml` — fast BS4 backend
 
 ---
 
 ## File Layout
 
 ```
-nori/tools/browser/
-    __init__.py          # exports BrowserUse
-    tool.py              # @tool BrowserUse — entry point, loop driver
-    extractor.py         # element extraction + filtering logic
-    screenshot.py        # per-element crop + resize + highlight
-    compositor.py        # stitch 1–4 crops into 2x2 grid + legend
-    blocklist.py         # tracking/analytics domain blocklist
-    actions.py           # action execution (click, type, scroll, etc.)
-    prompts.py           # system prompt for internal LLM
+nori/tools/
+    api_client.py            # ApiClient — raw HTTP (was WebClient)
+    web_client.py            # WebClient — httpx + BS4
+    web_agent.py             # WebAgent  — uses ApiClient (unchanged role)
+    web_search.py            # WebSearch — uses WebClient (gets clean text now)
+    browser/
+        __init__.py          # exports BrowserClient, BrowserAgent
+        client.py            # BrowserClient — Playwright + BS4
+        tool.py              # BrowserAgent  — LLM loop (was BrowserUse)
+        extractor.py         # element extraction + filtering
+        screenshot.py        # per-element crop + highlight
+        compositor.py        # 2×2 grid stitching
+        parser.py            # shared BS4 parse logic
+        blocklist.py         # tracking domain blocklist
+        actions.py           # action execution
+        prompts.py           # BrowserAgent system prompt
 ```
-
-`BrowserUse` is added to `nori/tools/__init__.py` and available as a first-class tool.
-
----
-
-## Implementation Plan
-
-1. **Dependencies** — `uv add playwright pillow`; add `playwright install chromium` to setup docs
-2. **`blocklist.py`** — curate tracking domain list from public sources (uBlock Origin, EasyPrivacy)
-3. **`extractor.py`** — Playwright `page.query_selector_all`, attribute extraction, filtering, ID assignment
-4. **`screenshot.py`** — bounding box lookup, CSS highlight, crop + pad, resize, base64 encode
-5. **`actions.py`** — action dispatch: click, type, select, scroll, navigate, wait
-6. **`prompts.py`** — system prompt for internal decision LLM
-7. **`tool.py`** — loop: navigate → extract → LLM → action → repeat; step limit; done/fail handling
-8. **Browser lifecycle** — lazy init, context-per-call, shared browser instance
-9. **Config** — `Config.browser` defaults for headless, viewport, timeout
-10. **Tests** — unit tests for extractor (mock DOM), screenshot (mock bbox), blocklist; integration test with a local HTML fixture served via `http.server`
-11. **Demo** — `demos/browser_demo.py` showing a real multi-step task
 
 ---
 
 ## Open Questions
 
-- **Credentials in prompt:** the task prompt may contain passwords in plaintext. Should the tool warn when it detects credential-shaped content in the task string? Or is that the user's responsibility?
-- **2FA / CAPTCHA:** both are currently out of scope. The tool should `fail` gracefully with a clear message rather than hanging.
-- **PDF / file downloads:** out of scope for v1. If a click triggers a download, the tool should detect it and surface the file path.
-- **Multi-tab navigation:** some flows open links in new tabs (OAuth). Playwright supports this but adds complexity. Out of scope for v1 — links that open new tabs should be handled via `navigate` instead.
-- **Element ID stability across steps:** IDs (`el_0`, `el_1`) are reassigned every extraction. The LLM cannot carry an `element_id` across loop iterations — it must always act on the IDs from the most recent extraction. The system prompt must make this explicit.
+- **Credentials in prompt:** passwords in the task string are plaintext in the conversation history. User's responsibility for now; could add a warning in a future pass.
+- **2FA / CAPTCHA:** out of scope — `fail` gracefully with a clear message.
+- **Shadow DOM:** `querySelectorAll` does not pierce shadow roots. Playwright supports it with `>>>` syntax; deferred to v2.
+- **Multi-tab flows (OAuth):** out of scope for v1 — links that open new tabs should be handled via `navigate`.
+- **ToolResult image support:** enabling the sub-Agent-with-primitive-tools pattern for `BrowserAgent` requires `ToolResult` to carry image content and `agent.py` to inject user messages for image tool results. Tracked as a future Agent enhancement.

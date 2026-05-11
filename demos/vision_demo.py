@@ -3,10 +3,6 @@ Vision demo: agent that uses ViewImage to inspect an image mid-task.
 
 Creates a small test PNG at /tmp/nori_vision_demo.png, then asks an agent
 to describe it using the ViewImage tool. Requires a multimodal model.
-
-Ollama: pull a vision-capable model first, e.g.:
-    ollama pull llava
-    ollama pull gemma4:31b  # also supports vision
 """
 
 import config

@@ -17,6 +17,9 @@ dependencies = [
     "redis>=7.4.0",
 ]
 
+[project.scripts]
+nori = "nori.cli:main"
+
 [project.optional-dependencies]
 bedrock = ["boto3"]
 server = [

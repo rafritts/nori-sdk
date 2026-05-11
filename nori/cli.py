@@ -55,12 +55,12 @@ async def _spin_while(coro):
     async def spin():
         i = 0
         while not done.is_set():
-            sys.stdout.write(f"\r[{frames[i % len(frames)]}] ")
-            sys.stdout.flush()
+            sys.stderr.write(f"\r[{frames[i % len(frames)]}]")
+            sys.stderr.flush()
             i += 1
             await asyncio.sleep(0.1)
-        sys.stdout.write("\r    \r")
-        sys.stdout.flush()
+        sys.stderr.write("\r[::]\r")
+        sys.stderr.flush()
 
     spin_task = asyncio.create_task(spin())
     try:

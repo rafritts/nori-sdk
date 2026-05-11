@@ -68,6 +68,7 @@ def main():
         )
         sys.exit(1)
 
+    no_sandbox = args.no_sandbox or os.getenv("NORI_CLI_NO_SANDBOX", "").lower() in ("1", "true", "yes")
     model = _resolve_model(provider, model_id)
-    result = asyncio.run(_run(args.prompt, model, not args.no_narration, not args.no_sandbox))
+    result = asyncio.run(_run(args.prompt, model, not args.no_narration, not no_sandbox))
     print(result)

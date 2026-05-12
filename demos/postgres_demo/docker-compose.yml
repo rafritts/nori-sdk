@@ -1,0 +1,14 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: nori
+      POSTGRES_PASSWORD: nori
+      POSTGRES_DB: nori_inventory
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nori -d nori_inventory"]
+      interval: 5s
+      timeout: 5s
+      retries: 10

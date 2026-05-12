@@ -1,0 +1,14 @@
+services:
+  mongo:
+    image: mongo:7
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: nori
+      MONGO_INITDB_ROOT_PASSWORD: nori
+      MONGO_INITDB_DATABASE: nori_blog
+    ports:
+      - "27018:27017"
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 10

@@ -1,32 +1,54 @@
 [project]
-name = "nori"
+name = "nori-sdk"
 version = "0.1.0"
-description = "Add your description here"
+description = "A framework for building agentic AI applications"
 readme = "README.md"
 requires-python = ">=3.13"
+license = { text = "MIT" }
+authors = [{ name = "Ryan Fritts", email = "ryan.fritts@live.com" }]
 dependencies = [
-    "asyncpg>=0.31.0",
-    "beautifulsoup4>=4.14.3",
-    "httpx>=0.28.1",
-    "jsonpath-ng>=1.8.0",
-    "lxml>=6.1.0",
     "openai>=2.36.0",
-    "pillow>=12.2.0",
-    "playwright>=1.59.0",
     "pydantic>=2.13.4",
     "python-dotenv>=1.2.2",
-    "redis>=7.4.0",
 ]
+
+[project.urls]
+Homepage = "https://nori-sdk.com"
+Repository = "https://github.com/restlessapi/nori"
 
 [project.scripts]
 nori = "nori.cli:main"
 
 [project.optional-dependencies]
+browser = [
+    "beautifulsoup4>=4.14.3",
+    "httpx>=0.28.1",
+    "lxml>=6.1.0",
+    "pillow>=12.2.0",
+    "playwright>=1.59.0",
+]
+data = ["jsonpath-ng>=1.8.0"]
+postgres = ["asyncpg>=0.29"]
+redis = ["redis>=5.0"]
+mongo = ["motor>=3.3"]
 bedrock = ["boto3"]
 server = [
     "fastapi>=0.136.1",
     "uvicorn>=0.46.0",
 ]
+all = [
+    "nori-sdk[browser]",
+    "nori-sdk[data]",
+    "nori-sdk[postgres]",
+    "nori-sdk[redis]",
+    "nori-sdk[mongo]",
+    "nori-sdk[bedrock]",
+    "nori-sdk[server]",
+]
+
+[build-system]
+requires = ["setuptools>=72"]
+build-backend = "setuptools.build_meta"
 
 [dependency-groups]
 dev = [

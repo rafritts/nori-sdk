@@ -1,6 +1,6 @@
 from nori.agent import Agent
 import nori.config as config
-from nori.config import configure, reset
+from nori.config import configure, reset, NotifyConfig
 from nori.anti_spin import Checkpoint
 from nori.context import ContextFile
 from nori.enums import CheckpointScrutiny, ContextRole, ContextWindow, ResizeMode, SelfModify
@@ -16,6 +16,7 @@ __all__ = [
     "config",
     "configure",
     "reset",
+    "NotifyConfig",
     "Checkpoint",
     "CheckpointScrutiny",
     "ContextFile",

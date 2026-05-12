@@ -25,6 +25,12 @@ def _parse_server(value) -> ServerConfig:
 
 
 @dataclass
+class NotifyConfig:
+    slack_webhook: str | None = None
+    webhook_url: str | None = None
+
+
+@dataclass
 class AgentDefaults:
     model: object = None  # Model | None, avoid circular import
     tool_timeout: float | None = None
@@ -32,6 +38,7 @@ class AgentDefaults:
     max_turns: int | None = None
     tool_models: dict = field(default_factory=dict)  # {tool_class: Model}
     server: ServerConfig = field(default_factory=ServerConfig)
+    notify: NotifyConfig = field(default_factory=NotifyConfig)
 
 
 _defaults = AgentDefaults()
@@ -40,12 +47,15 @@ _defaults = AgentDefaults()
 def configure(**kwargs) -> None:
     tool_models = kwargs.pop("tool_models", None)
     server = kwargs.pop("server", _UNSET)
+    notify = kwargs.pop("notify", _UNSET)
     for k, v in kwargs.items():
         setattr(_defaults, k, v)
     if tool_models:
         _defaults.tool_models.update(tool_models)
     if server is not _UNSET:
         _defaults.server = _parse_server(server)
+    if notify is not _UNSET:
+        _defaults.notify = notify if isinstance(notify, NotifyConfig) else NotifyConfig(**notify)
 
 
 def reset() -> None:

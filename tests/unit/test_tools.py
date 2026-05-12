@@ -90,7 +90,55 @@ async def test_file_search_no_match_returns_empty(tmp_path):
     assert result.result == "No matches found."
 
 
+# ── FileEdit — additional ─────────────────────────────────────────────────────
+
+async def test_file_edit_file_not_found(tmp_path):
+    from nori.tools.file_edit import FileEdit
+    result = await FileEdit(path=str(tmp_path / "missing.txt"), old_content="x", new_content="y", reason="r")
+    assert "not found" in result.result.lower()
+
+
+async def test_file_read_os_error(tmp_path):
+    from unittest.mock import patch
+    from nori.tools.file_read import FileRead
+    import pathlib
+    with patch.object(pathlib.Path, "read_text", side_effect=OSError("permission denied")):
+        result = await FileRead(path=str(tmp_path / "file.txt"), reason="r")
+    assert "Cannot read" in result.result or "permission denied" in result.result
+
+
+# ── FileSearch — additional ───────────────────────────────────────────────────
+
+async def test_file_search_content_no_match(tmp_path):
+    from nori.tools.file_search import FileSearch
+    (tmp_path / "a.txt").write_text("unrelated content")
+    result = await FileSearch(path=str(tmp_path), pattern="*", content="nonexistent", reason="r")
+    assert result.result == "No matches found."
+
+
 # ── ApiClient ─────────────────────────────────────────────────────────────────
+
+async def test_api_client_invalid_headers_returns_error():
+    from nori.tools.api_client import ApiClient
+    result = await ApiClient(url="http://example.com", headers="not-json", reason="r")
+    assert "[error]" in result.result
+    assert "headers" in result.result
+
+
+async def test_api_client_network_error_returns_message():
+    from unittest.mock import AsyncMock, patch
+    import httpx
+    from nori.tools.api_client import ApiClient
+
+    mock_client = AsyncMock()
+    mock_client.request = AsyncMock(side_effect=httpx.ConnectError("connection refused"))
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("httpx.AsyncClient", return_value=mock_client):
+        result = await ApiClient(url="http://example.com", reason="r")
+    assert "[network error]" in result.result
+
 
 async def test_api_client_returns_response_body():
     from unittest.mock import AsyncMock, MagicMock, patch
@@ -170,3 +218,88 @@ async def test_code_runner_reason_not_in_snippet():
         await CodeRunner(code="print(1)", reason="secret reason")
         args = mock_run.call_args.args[0]
         assert "secret reason" not in " ".join(args)
+
+
+# ── FileRead ──────────────────────────────────────────────────────────────────
+
+async def test_file_read_returns_contents(tmp_path):
+    from nori.tools.file_read import FileRead
+    f = tmp_path / "hello.txt"
+    f.write_text("line one\nline two\n")
+    result = await FileRead(path=str(f), reason="r")
+    assert "line one" in result.result
+    assert "line two" in result.result
+
+
+async def test_file_read_range_returns_numbered_lines(tmp_path):
+    from nori.tools.file_read import FileRead
+    f = tmp_path / "code.py"
+    f.write_text("a\nb\nc\nd\ne\n")
+    result = await FileRead(path=str(f), start_line=2, end_line=4, reason="r")
+    assert "2" in result.result
+    assert "b" in result.result
+    assert "d" in result.result
+    assert "a" not in result.result
+    assert "e" not in result.result
+
+
+async def test_file_read_missing_file(tmp_path):
+    from nori.tools.file_read import FileRead
+    result = await FileRead(path=str(tmp_path / "missing.txt"), reason="r")
+    assert "not found" in result.result.lower()
+
+
+async def test_file_read_truncates_large_file(tmp_path):
+    from nori.tools.file_read import FileRead
+    f = tmp_path / "big.txt"
+    f.write_text("x" * 60_000)
+    result = await FileRead(path=str(f), reason="r")
+    assert "truncated" in result.result
+    assert len(result.result) < 55_000
+
+
+async def test_file_read_reason_not_in_output(tmp_path):
+    from nori.tools.file_read import FileRead
+    f = tmp_path / "file.txt"
+    f.write_text("content")
+    result = await FileRead(path=str(f), reason="secret reason")
+    assert "secret reason" not in result.result
+
+
+# ── FileWrite ─────────────────────────────────────────────────────────────────
+
+async def test_file_write_creates_file(tmp_path):
+    from nori.tools.file_write import FileWrite
+    dest = tmp_path / "new.txt"
+    await FileWrite(path=str(dest), content="hello nori", reason="r")
+    assert dest.read_text() == "hello nori"
+
+
+async def test_file_write_overwrites_existing(tmp_path):
+    from nori.tools.file_write import FileWrite
+    dest = tmp_path / "existing.txt"
+    dest.write_text("old content")
+    await FileWrite(path=str(dest), content="new content", reason="r")
+    assert dest.read_text() == "new content"
+
+
+async def test_file_write_creates_parent_dirs(tmp_path):
+    from nori.tools.file_write import FileWrite
+    dest = tmp_path / "a" / "b" / "c" / "file.txt"
+    await FileWrite(path=str(dest), content="deep", reason="r")
+    assert dest.read_text() == "deep"
+
+
+async def test_file_write_returns_byte_count(tmp_path):
+    from nori.tools.file_write import FileWrite
+    dest = tmp_path / "out.txt"
+    result = await FileWrite(path=str(dest), content="hello", reason="r")
+    assert "5" in result.result
+    assert str(dest) in result.result
+
+
+async def test_file_write_reason_not_written(tmp_path):
+    from nori.tools.file_write import FileWrite
+    dest = tmp_path / "out.txt"
+    await FileWrite(path=str(dest), content="data", reason="secret reason")
+    assert "secret reason" not in dest.read_text()

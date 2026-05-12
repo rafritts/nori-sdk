@@ -100,3 +100,90 @@ def test_configure_merges_tool_models():
     d = get_defaults()
     assert d.tool_models[FakeTool] is m1
     assert d.tool_models[OtherTool] is m2
+
+
+# ── Model validation ──────────────────────────────────────────────────────────
+
+def test_model_empty_id_raises():
+    with pytest.raises(ValueError, match="non-empty"):
+        Model(id="", api_key="k")
+
+
+def test_model_invalid_context_window():
+    with pytest.raises(ValueError, match="context_window"):
+        Model(id="x", api_key="k", context_window=0)
+
+
+def test_model_negative_context_window():
+    with pytest.raises(ValueError, match="context_window"):
+        Model(id="x", api_key="k", context_window=-1)
+
+
+def test_model_repr_with_provider():
+    m = Model(id="gemma4:31b", provider=Provider.OLLAMA)
+    r = repr(m)
+    assert "gemma4:31b" in r
+    assert "OLLAMA" in r
+
+
+def test_model_repr_without_provider():
+    m = Model(id="grok-4.3", api_key="sk-key")
+    r = repr(m)
+    assert "grok-4.3" in r
+
+
+def test_model_http_client_without_base_url_raises():
+    from unittest.mock import MagicMock
+    with pytest.raises(ValueError, match="base_url"):
+        Model(id="x", api_key="k", http_client=MagicMock())
+
+
+# ── server.py coverage ────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_ensure_started_early_return_if_already_running():
+    from unittest.mock import AsyncMock, MagicMock, patch
+    from nori import server as srv
+
+    mock_task = MagicMock()
+    orig = srv._server_task
+    srv._server_task = mock_task
+    try:
+        from nori.config import ServerConfig
+        cfg = ServerConfig(enabled=True, host="127.0.0.1", port=9999)
+        # Should return immediately without starting a new server
+        with patch("nori.server._make_app") as mock_app:
+            await srv.ensure_started(cfg)
+            mock_app.assert_not_called()
+    finally:
+        srv._server_task = orig
+
+
+@pytest.mark.asyncio
+async def test_server_shutdown_clears_state():
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock, patch
+    from nori import server as srv
+
+    orig_task = srv._server_task
+    orig_server = srv._uvicorn_server
+
+    mock_uv = MagicMock()
+
+    # Create a real coroutine task that is already done
+    async def _done():
+        pass
+    loop = asyncio.get_event_loop()
+    done_task = loop.create_task(_done())
+    await done_task  # let it complete
+
+    srv._uvicorn_server = mock_uv
+    srv._server_task = done_task
+
+    try:
+        await srv.shutdown()
+        assert srv._server_task is None
+        assert srv._uvicorn_server is None
+    finally:
+        srv._server_task = orig_task
+        srv._uvicorn_server = orig_server

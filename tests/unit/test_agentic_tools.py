@@ -152,3 +152,113 @@ async def test_code_runner_agent_result_returned():
         from nori.tools.code_runner_agent import CodeRunnerAgent
         result = await CodeRunnerAgent(task="compute", reason="r")
         assert result.result == "result: 42"
+
+
+# ── CsvReadAgent ──────────────────────────────────────────────────────────────
+
+async def test_csv_read_agent_creates_sub_agent():
+    with patch("nori.tools.csv_read_agent.Agent") as MockAgent:
+        sub = MagicMock()
+        sub.run = AsyncMock(return_value="done")
+        MockAgent.return_value = sub
+        from nori.tools.csv_read_agent import CsvReadAgent
+        await CsvReadAgent(task="analyze csv", reason="r")
+        MockAgent.assert_called_once()
+
+
+async def test_csv_read_agent_result_returned():
+    with patch("nori.tools.csv_read_agent.Agent") as MockAgent:
+        sub = MagicMock()
+        sub.run = AsyncMock(return_value="csv analysis done")
+        MockAgent.return_value = sub
+        from nori.tools.csv_read_agent import CsvReadAgent
+        result = await CsvReadAgent(task="analyze csv", reason="r")
+        assert result.result == "csv analysis done"
+
+
+# ── FileReadAgent ─────────────────────────────────────────────────────────────
+
+async def test_file_read_agent_creates_sub_agent():
+    with patch("nori.tools.file_read_agent.Agent") as MockAgent:
+        sub = MagicMock()
+        sub.run = AsyncMock(return_value="done")
+        MockAgent.return_value = sub
+        from nori.tools.file_read_agent import FileReadAgent
+        await FileReadAgent(task="read files", reason="r")
+        MockAgent.assert_called_once()
+
+
+async def test_file_read_agent_result_returned():
+    with patch("nori.tools.file_read_agent.Agent") as MockAgent:
+        sub = MagicMock()
+        sub.run = AsyncMock(return_value="file contents")
+        MockAgent.return_value = sub
+        from nori.tools.file_read_agent import FileReadAgent
+        result = await FileReadAgent(task="read files", reason="r")
+        assert result.result == "file contents"
+
+
+# ── FileWriteAgent ────────────────────────────────────────────────────────────
+
+async def test_file_write_agent_creates_sub_agent():
+    with patch("nori.tools.file_write_agent.Agent") as MockAgent:
+        sub = MagicMock()
+        sub.run = AsyncMock(return_value="done")
+        MockAgent.return_value = sub
+        from nori.tools.file_write_agent import FileWriteAgent
+        await FileWriteAgent(task="write files", reason="r")
+        MockAgent.assert_called_once()
+
+
+async def test_file_write_agent_result_returned():
+    with patch("nori.tools.file_write_agent.Agent") as MockAgent:
+        sub = MagicMock()
+        sub.run = AsyncMock(return_value="wrote 3 files")
+        MockAgent.return_value = sub
+        from nori.tools.file_write_agent import FileWriteAgent
+        result = await FileWriteAgent(task="write files", reason="r")
+        assert result.result == "wrote 3 files"
+
+
+# ── GitAgent ──────────────────────────────────────────────────────────────────
+
+async def test_git_agent_creates_sub_agent():
+    with patch("nori.tools.git_agent.Agent") as MockAgent:
+        sub = MagicMock()
+        sub.run = AsyncMock(return_value="done")
+        MockAgent.return_value = sub
+        from nori.tools.git_agent import GitAgent
+        await GitAgent(task="run git workflow", reason="r")
+        MockAgent.assert_called_once()
+
+
+async def test_git_agent_result_returned():
+    with patch("nori.tools.git_agent.Agent") as MockAgent:
+        sub = MagicMock()
+        sub.run = AsyncMock(return_value="committed and pushed")
+        MockAgent.return_value = sub
+        from nori.tools.git_agent import GitAgent
+        result = await GitAgent(task="commit changes", reason="r")
+        assert result.result == "committed and pushed"
+
+
+# ── JsonReadAgent ─────────────────────────────────────────────────────────────
+
+async def test_json_read_agent_creates_sub_agent():
+    with patch("nori.tools.json_read_agent.Agent") as MockAgent:
+        sub = MagicMock()
+        sub.run = AsyncMock(return_value="done")
+        MockAgent.return_value = sub
+        from nori.tools.json_read_agent import JsonReadAgent
+        await JsonReadAgent(task="read json files", reason="r")
+        MockAgent.assert_called_once()
+
+
+async def test_json_read_agent_result_returned():
+    with patch("nori.tools.json_read_agent.Agent") as MockAgent:
+        sub = MagicMock()
+        sub.run = AsyncMock(return_value="parsed json data")
+        MockAgent.return_value = sub
+        from nori.tools.json_read_agent import JsonReadAgent
+        result = await JsonReadAgent(task="read json", reason="r")
+        assert result.result == "parsed json data"

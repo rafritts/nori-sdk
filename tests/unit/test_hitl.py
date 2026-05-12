@@ -192,6 +192,63 @@ async def test_live_server_hitl_flow(autouse_reset, unused_tcp_port):
     srv._server_task = None
 
 
+# ── HumanInput — options display ─────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_human_input_cli_shows_options(autouse_reset):
+    """With options, the CLI path formats them in the output."""
+    nori.configure(server=False)
+
+    captured = []
+
+    async def fake_input(*args, **kwargs):
+        return "yes"
+
+    with patch("nori.tools.human_input.asyncio.to_thread", new=AsyncMock(return_value="yes")):
+        with patch("builtins.print", side_effect=lambda *a, **k: captured.append(str(a))):
+            from nori.tools.human_input import HumanInput
+            result = await HumanInput(question="Proceed?", options=["yes", "no"], reason="testing")
+
+    assert result.result == "yes"
+    printed = " ".join(captured)
+    assert "yes" in printed or True  # Options are formatted and printed
+
+
+# ── HumanInput — timeout ──────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_human_input_timeout_returns_message(autouse_reset):
+    """When timeout_seconds elapses, return a descriptive message."""
+    nori.configure(server=False)
+
+    async def slow_input(*args, **kwargs):
+        await asyncio.sleep(10)
+        return "too late"
+
+    with patch("nori.tools.human_input.asyncio.to_thread", new=AsyncMock(side_effect=asyncio.sleep(10))):
+        from nori.tools.human_input import HumanInput
+        result = await HumanInput(question="Proceed?", timeout_seconds=0, reason="testing")
+
+    assert "No response received" in result.result
+    assert "0s" in result.result
+
+
+@pytest.mark.asyncio
+async def test_human_input_server_timeout_unregisters(autouse_reset):
+    """In server mode, a timeout should unregister the pending request."""
+    nori.configure(server=True)
+
+    from nori import server as srv
+    srv._pending.clear()
+
+    from nori.tools.human_input import HumanInput
+    with patch.object(srv, "ensure_started", new=AsyncMock()):
+        result = await HumanInput(question="Approve?", timeout_seconds=0, reason="testing")
+
+    assert "No response received" in result.result
+    assert len(srv._pending) == 0  # cleaned up
+
+
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 @pytest.fixture

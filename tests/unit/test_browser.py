@@ -215,3 +215,164 @@ async def test_execute_action_scroll_clamps_px():
     page.mouse = AsyncMock()
     await execute_action(page, {"action": "scroll", "direction": "down", "px": 9999}, [])
     page.mouse.wheel.assert_called_once_with(0, 2000)
+
+
+@pytest.mark.asyncio
+async def test_execute_action_scroll_up():
+    from nori.tools.browser.actions import execute_action
+    page = AsyncMock()
+    page.mouse = AsyncMock()
+    await execute_action(page, {"action": "scroll", "direction": "up", "px": 400}, [])
+    page.mouse.wheel.assert_called_once_with(0, -400)
+
+
+@pytest.mark.asyncio
+async def test_execute_action_click_success():
+    from nori.tools.browser.actions import execute_action
+    page = AsyncMock()
+    page.mouse = AsyncMock()
+    elements = [{"id": "el_0", "tag": "button", "bbox": {"x": 100, "y": 50, "w": 80, "h": 30}}]
+    result = await execute_action(page, {"action": "click", "element_id": "el_0"}, elements)
+    assert result is None
+    page.mouse.click.assert_called_once_with(140.0, 65.0)
+
+
+@pytest.mark.asyncio
+async def test_execute_action_type_success():
+    from nori.tools.browser.actions import execute_action
+    page = AsyncMock()
+    page.mouse = AsyncMock()
+    page.keyboard = AsyncMock()
+    elements = [{"id": "el_0", "tag": "input", "bbox": {"x": 10, "y": 10, "w": 200, "h": 40}}]
+    result = await execute_action(page, {"action": "type", "element_id": "el_0", "text": "hello"}, elements)
+    assert result is None
+    page.keyboard.type.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_execute_action_type_missing_element():
+    from nori.tools.browser.actions import execute_action
+    page = AsyncMock()
+    err = await execute_action(page, {"action": "type", "element_id": "el_99", "text": "x"}, [])
+    assert "not found" in err
+
+
+@pytest.mark.asyncio
+async def test_execute_action_navigate_success():
+    from nori.tools.browser.actions import execute_action
+    page = AsyncMock()
+    result = await execute_action(page, {"action": "navigate", "url": "https://example.com"}, [])
+    assert result is None
+    page.goto.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_execute_action_select_missing_element():
+    from nori.tools.browser.actions import execute_action
+    page = AsyncMock()
+    err = await execute_action(page, {"action": "select", "element_id": "el_99", "value": "x"}, [])
+    assert "not found" in err
+
+
+@pytest.mark.asyncio
+async def test_execute_action_select_success():
+    from nori.tools.browser.actions import execute_action
+    page = AsyncMock()
+    page.evaluate = AsyncMock(return_value=True)
+    elements = [{"id": "el_0", "tag": "select", "bbox": {"x": 10, "y": 10, "w": 100, "h": 30}}]
+    result = await execute_action(page, {"action": "select", "element_id": "el_0", "value": "opt1"}, elements)
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_execute_action_select_fails():
+    from nori.tools.browser.actions import execute_action
+    page = AsyncMock()
+    page.evaluate = AsyncMock(return_value=False)
+    elements = [{"id": "el_0", "tag": "select", "bbox": {"x": 10, "y": 10, "w": 100, "h": 30}}]
+    result = await execute_action(page, {"action": "select", "element_id": "el_0", "value": "opt1"}, elements)
+    assert "select failed" in result
+
+
+# ── extractor ─────────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_extract_elements_filters_tracking():
+    from nori.tools.browser.extractor import extract_elements
+    page = AsyncMock()
+    page.evaluate = AsyncMock(return_value=[
+        {"id": "el_0", "tag": "a", "href": "https://google-analytics.com/collect", "bbox": {}},
+        {"id": "el_1", "tag": "a", "href": "https://example.com/home", "bbox": {}},
+    ])
+    result = await extract_elements(page)
+    assert len(result) == 1
+    assert result[0]["id"] == "el_1"
+
+
+# ── screenshot ────────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_crop_element_returns_image():
+    from io import BytesIO
+    from PIL import Image as PILImage
+    from nori.tools.browser.screenshot import crop_element
+
+    buf = BytesIO()
+    PILImage.new("RGB", (200, 200), (255, 0, 0)).save(buf, format="PNG")
+    png_bytes = buf.getvalue()
+
+    page = AsyncMock()
+    page.viewport_size = {"width": 1280, "height": 800}
+    page.screenshot = AsyncMock(return_value=png_bytes)
+
+    bbox = {"x": 100, "y": 100, "w": 50, "h": 50}
+    img = await crop_element(page, bbox, "#FF3B30")
+    assert img.width > 0
+    assert img.height > 0
+
+
+@pytest.mark.asyncio
+async def test_full_page_screenshot_returns_base64():
+    from io import BytesIO
+    from PIL import Image as PILImage
+    from nori.tools.browser.screenshot import full_page_screenshot
+
+    buf = BytesIO()
+    PILImage.new("RGB", (800, 600), (0, 128, 255)).save(buf, format="PNG")
+    png_bytes = buf.getvalue()
+
+    page = AsyncMock()
+    page.screenshot = AsyncMock(return_value=png_bytes)
+
+    result = await full_page_screenshot(page)
+    assert isinstance(result, str)
+    assert len(result) > 0
+
+
+@pytest.mark.asyncio
+async def test_full_page_screenshot_resizes_wide_image():
+    from io import BytesIO
+    from PIL import Image as PILImage
+    from nori.tools.browser.screenshot import full_page_screenshot
+    import base64
+
+    buf = BytesIO()
+    PILImage.new("RGB", (2000, 1000), (200, 200, 200)).save(buf, format="PNG")
+    png_bytes = buf.getvalue()
+
+    page = AsyncMock()
+    page.screenshot = AsyncMock(return_value=png_bytes)
+
+    result = await full_page_screenshot(page)
+    img = PILImage.open(BytesIO(base64.b64decode(result)))
+    assert img.width == 1280
+
+
+# ── BrowserClient — playwright not installed ──────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_browser_client_playwright_not_installed():
+    from nori.tools.browser.client import BrowserClient
+    with patch("builtins.__import__", side_effect=lambda name, *a, **k: (_ for _ in ()).throw(ImportError("no playwright")) if name == "playwright.async_api" else __import__(name, *a, **k)):
+        result = await BrowserClient(url="http://example.com", reason="r")
+    assert "playwright" in result.result.lower()

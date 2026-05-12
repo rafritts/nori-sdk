@@ -8,6 +8,7 @@ dependencies = [
     "asyncpg>=0.31.0",
     "beautifulsoup4>=4.14.3",
     "httpx>=0.28.1",
+    "jsonpath-ng>=1.8.0",
     "lxml>=6.1.0",
     "openai>=2.36.0",
     "pillow>=12.2.0",

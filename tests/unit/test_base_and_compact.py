@@ -42,3 +42,30 @@ def test_compact_summarize_output_false():
 
 def test_compact_is_coroutine():
     assert asyncio.iscoroutinefunction(Compact)
+
+
+async def test_compact_returns_compacted():
+    result = await Compact(reason="context is long")
+    assert result == "compacted"
+
+
+def test_bound_tool_repr():
+    bound = SampleTool.bind(y="fixed")
+    r = repr(bound)
+    assert "BoundTool" in r
+    assert "y" in r
+
+
+def test_tool_decorator_skips_reason_param():
+    """Tool with a 'reason' param in its signature — decorator should skip it."""
+    from nori.tool import tool
+
+    @tool
+    def has_reason(x: str, reason: str) -> str:
+        """Tool with explicit reason param."""
+        return x
+
+    # reason should NOT appear twice in properties — decorator injects it once
+    props = has_reason.schema["function"]["parameters"]["properties"]
+    assert "reason" in props
+    assert "x" in props

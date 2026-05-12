@@ -3,7 +3,7 @@
 ## Install
 
 ```bash
-pip install nori-sdk
+uv add nori-sdk
 ```
 
 ## Set up your environment

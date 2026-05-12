@@ -69,4 +69,4 @@ except ToolPermissionError as e:
 
 ---
 
-See [`permissions_demo.py`](https://github.com/rafritts/nori/blob/master/demos/permissions_demo.py) for all three scenarios — no restrictions, allow list, and deny list — with real agents.
+See [`permissions_demo.py`](https://github.com/rafritts/nori-sdk/blob/master/demos/permissions_demo.py) for all three scenarios — no restrictions, allow list, and deny list — with real agents.

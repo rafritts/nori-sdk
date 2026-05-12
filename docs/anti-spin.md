@@ -67,4 +67,4 @@ Set `max_turns=None` to remove the ceiling and rely on anti-spin alone for termi
 
 ---
 
-See [`anti_spin_demo.py`](https://github.com/rafritts/nori/blob/master/demos/anti_spin_demo.py) for both scenarios: a healthy agent that passes every checkpoint, and a spinning agent that gets terminated.
+See [`anti_spin_demo.py`](https://github.com/rafritts/nori-sdk/blob/master/demos/anti_spin_demo.py) for both scenarios: a healthy agent that passes every checkpoint, and a spinning agent that gets terminated.

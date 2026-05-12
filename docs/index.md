@@ -15,17 +15,17 @@ If you've spent a week getting an agent to do real work in a real application, N
 ## Install
 
 ```bash
-pip install nori-sdk
+uv add nori-sdk
 ```
 
 For optional integrations:
 
 ```bash
-pip install "nori-sdk[browser]"    # Playwright-based browser tools
-pip install "nori-sdk[postgres]"   # Postgres tools
-pip install "nori-sdk[redis]"      # Redis tools
-pip install "nori-sdk[mongo]"      # MongoDB tools
-pip install "nori-sdk[all]"        # Everything
+uv add "nori-sdk[browser]"    # Playwright-based browser tools
+uv add "nori-sdk[postgres]"   # Postgres tools
+uv add "nori-sdk[redis]"      # Redis tools
+uv add "nori-sdk[mongo]"      # MongoDB tools
+uv add "nori-sdk[all]"        # Everything
 ```
 
 ---

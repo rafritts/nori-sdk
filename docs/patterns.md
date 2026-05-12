@@ -34,7 +34,7 @@ result = await orchestrator.run("Write a comparison of Python and Rust.")
 
 The `description` field is what the orchestrator sees in the tool schema — make it specific so the model knows when to delegate.
 
-See [`agent_as_tool_demo.py`](https://github.com/rafritts/nori/blob/master/demos/agent_as_tool_demo.py) for a full example with a researcher and writer working under an orchestrator.
+See [`agent_as_tool_demo.py`](https://github.com/rafritts/nori-sdk/blob/master/demos/agent_as_tool_demo.py) for a full example with a researcher and writer working under an orchestrator.
 
 ---
 
@@ -42,7 +42,7 @@ See [`agent_as_tool_demo.py`](https://github.com/rafritts/nori/blob/master/demos
 
 When an orchestrator calls multiple sub-agents in the same turn, Nori executes them concurrently. The model decides to call several tools at once; Nori runs them in parallel automatically.
 
-See [`parallel_demo.py`](https://github.com/rafritts/nori/blob/master/demos/parallel_demo.py) for a multi-agent parallel code review: three specialist reviewers (security, performance, correctness) dispatched simultaneously by an orchestrator, with B3 trace propagation across all four agents.
+See [`parallel_demo.py`](https://github.com/rafritts/nori-sdk/blob/master/demos/parallel_demo.py) for a multi-agent parallel code review: three specialist reviewers (security, performance, correctness) dispatched simultaneously by an orchestrator, with B3 trace propagation across all four agents.
 
 ---
 
@@ -71,7 +71,7 @@ result = await agent.run("Purge all log files older than 30 days from /var/log/a
 
 The agent hits `HumanInput`, posts a question to `GET /hitl/pending`, and waits. Your application responds via `POST /hitl/{id}/respond` with the human's answer.
 
-See [`hitl_demo.py`](https://github.com/rafritts/nori/blob/master/demos/hitl_demo.py) for a complete working example including an auto-responder that simulates the human side.
+See [`hitl_demo.py`](https://github.com/rafritts/nori-sdk/blob/master/demos/hitl_demo.py) for a complete working example including an auto-responder that simulates the human side.
 
 ---
 
@@ -102,4 +102,4 @@ result = await agent.run(
 
 The self-modification capabilities are exposed as regular tools — the model decides when and why to invoke them.
 
-See [`self_modify_demo.py`](https://github.com/rafritts/nori/blob/master/demos/self_modify_demo.py) for all three tiers in action.
+See [`self_modify_demo.py`](https://github.com/rafritts/nori-sdk/blob/master/demos/self_modify_demo.py) for all three tiers in action.

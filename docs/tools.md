@@ -97,4 +97,4 @@ Useful for creating scoped, restricted tool variants from a general-purpose tool
 
 ## Full example
 
-See [`tool_decorator_demo.py`](https://github.com/rafritts/nori/blob/master/demos/tool_decorator_demo.py) for a complete walkthrough: schema generation, async tools, `summarize_output=False`, `.bind()`, and all of it wired into a real agent run.
+See [`tool_decorator_demo.py`](https://github.com/rafritts/nori-sdk/blob/master/demos/tool_decorator_demo.py) for a complete walkthrough: schema generation, async tools, `summarize_output=False`, `.bind()`, and all of it wired into a real agent run.

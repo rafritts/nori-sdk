@@ -32,7 +32,7 @@ infra_agent.narrator_prefix = "[infra] "
 app_agent.narrator_prefix   = "[app]   "
 ```
 
-See [`narration_demo.py`](https://github.com/rafritts/nori/blob/master/demos/narration_demo.py) for all three scenarios including concurrent agents with prefixes.
+See [`narration_demo.py`](https://github.com/rafritts/nori-sdk/blob/master/demos/narration_demo.py) for all three scenarios including concurrent agents with prefixes.
 
 ---
 
@@ -74,7 +74,7 @@ logging.getLogger("nori").setLevel(logging.DEBUG)
 logging.getLogger("nori").addHandler(your_handler)
 ```
 
-See [`observability_demo.py`](https://github.com/rafritts/nori/blob/master/demos/observability_demo.py) for a side-by-side comparison of the standard log and the audit stream.
+See [`observability_demo.py`](https://github.com/rafritts/nori-sdk/blob/master/demos/observability_demo.py) for a side-by-side comparison of the standard log and the audit stream.
 
 ---
 
@@ -113,4 +113,4 @@ agent = Agent(
 
 After each call to `agent.run()`, the history is compressed into a rolling summary. The next turn starts lean.
 
-See [`context_demo.py`](https://github.com/rafritts/nori/blob/master/demos/context_demo.py) for both running summaries and forced autocompaction.
+See [`context_demo.py`](https://github.com/rafritts/nori-sdk/blob/master/demos/context_demo.py) for both running summaries and forced autocompaction.

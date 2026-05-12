@@ -59,7 +59,7 @@ nori.configure(
 )
 ```
 
-Override any default per-agent by passing the parameter directly to `Agent(...)`. See [`config_override_demo.py`](https://github.com/rafritts/nori/blob/master/demos/config_override_demo.py) for a full example.
+Override any default per-agent by passing the parameter directly to `Agent(...)`. See [`config_override_demo.py`](https://github.com/rafritts/nori-sdk/blob/master/demos/config_override_demo.py) for a full example.
 
 ---
 

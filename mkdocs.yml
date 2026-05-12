@@ -1,8 +1,8 @@
 site_name: Nori
 site_description: A batteries-included agent framework for Python
 site_url: https://nori-sdk.com
-repo_url: https://github.com/rafritts/nori
-repo_name: rafritts/nori
+repo_url: https://github.com/rafritts/nori-sdk
+repo_name: rafritts/nori-sdk
 
 theme:
   name: material

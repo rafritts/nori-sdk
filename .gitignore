@@ -27,6 +27,9 @@ logs/
 *.sqlite
 *.sqlite3
 
+# MkDocs build output
+site/
+
 # Exercise runtime output
 scratchpad_audit.json
 exercises/**/postmortem.md

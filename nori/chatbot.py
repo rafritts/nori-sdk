@@ -110,7 +110,7 @@ def _chunk(cid: str, created: int, model_id: str, delta: dict, finish_reason=Non
     return f"data: {json.dumps(payload)}\n\n"
 
 
-def serve(agent_factory: Callable, host: str = "0.0.0.0", port: int = 8000, model_id: str = "nori") -> None:
+def serve(agent_factory: Callable, host: str = "0.0.0.0", port: int = 7732, model_id: str = "nori") -> None:
     """Start an OpenAI-compatible chat server backed by a nori Agent.
 
     agent_factory must be a zero-argument callable that returns a fresh Agent
@@ -123,5 +123,5 @@ def serve(agent_factory: Callable, host: str = "0.0.0.0", port: int = 8000, mode
         raise ImportError("uvicorn is required. Install with: uv add 'nori[server]'")
 
     app = make_app(agent_factory, model_id=model_id)
-    logger.info("nori chatbot listening on http://%s:%d/v1", host, port)
+    logger.info("nori chatbot listening on http://%s:%d/v1  (model_id=%s)", host, port, model_id)
     uvicorn.run(app, host=host, port=port)

@@ -6,7 +6,7 @@ Run:
 
 Then in Open WebUI:
     Settings → Connections → Add connection
-    URL: http://localhost:8000/v1
+    URL: http://localhost:7732/v1
     API key: nori  (any non-empty string)
 """
 
@@ -31,4 +31,4 @@ def make_agent():
     )
 
 
-serve(make_agent, port=8000)
+serve(make_agent, port=7732)

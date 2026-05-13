@@ -65,6 +65,8 @@ def make_app(
     model_id: str = "nori",
     narration: bool = True,
     static_dirs: dict[str, str] | None = None,
+    cache: bool = False,
+    keepalive: bool = False,
 ) -> "FastAPI":
     from fastapi import FastAPI
     from fastapi.middleware.cors import CORSMiddleware
@@ -87,7 +89,7 @@ def make_app(
         allow_headers=["*"],
     )
 
-    cache = _TTLCache(maxsize=_CACHE_MAX, ttl=_CACHE_TTL)
+    _cache = _TTLCache(maxsize=_CACHE_MAX, ttl=_CACHE_TTL) if cache else None
 
     class Message(BaseModel):
         role: str
@@ -109,17 +111,18 @@ def make_app(
     async def chat(req: ChatRequest):
         cid = f"chatcmpl-{uuid.uuid4().hex[:12]}"
         created = int(time.time())
-        key = _cache_key(req.messages)
+        key = _cache_key(req.messages) if _cache is not None else None
 
-        cached = cache.get(key)
-        if cached is not None:
-            logger.debug("cache hit cid=%s", cid)
-            if req.stream:
-                return StreamingResponse(
-                    _stream_cached(cached, cid, created, model_id),
-                    media_type="text/event-stream",
-                )
-            return _non_stream_response(cached, cid, created, model_id, 0, 0)
+        if _cache is not None and key is not None:
+            cached = _cache.get(key)
+            if cached is not None:
+                logger.debug("cache hit cid=%s", cid)
+                if req.stream:
+                    return StreamingResponse(
+                        _stream_cached(cached, cid, created, model_id),
+                        media_type="text/event-stream",
+                    )
+                return _non_stream_response(cached, cid, created, model_id, 0, 0)
 
         agent = agent_factory()
 
@@ -150,7 +153,8 @@ def make_app(
                     result = await agent.run(prompt)
                     tc = agent.token_counts
                     logger.debug("chat cid=%s turns=%d tokens=%d", cid, agent.turn_count, tc["prompt"] + tc["completion"])
-                    cache.set(key, result)
+                    if _cache is not None and key is not None:
+                        _cache.set(key, result)
                     queue.put_nowait(("done", result))
                 except Exception as e:
                     queue.put_nowait(("error", str(e)))
@@ -158,7 +162,7 @@ def make_app(
             asyncio.create_task(_run())
 
             return StreamingResponse(
-                _stream_live(queue, cid, created, model_id),
+                _stream_live(queue, cid, created, model_id, keepalive=keepalive),
                 media_type="text/event-stream",
             )
 
@@ -172,7 +176,8 @@ def make_app(
             agent.on_narration = _collect
 
         result = await agent.run(prompt)
-        cache.set(key, result)
+        if _cache is not None and key is not None:
+            _cache.set(key, result)
 
         if narration_lines:
             result = f"<think>\n{chr(10).join(narration_lines)}\n</think>\n{result}"
@@ -197,12 +202,12 @@ def _non_stream_response(content: str, cid: str, created: int, model_id: str, pr
     }
 
 
-async def _stream_live(queue: asyncio.Queue, cid: str, created: int, model_id: str) -> AsyncGenerator[str, None]:
+async def _stream_live(queue: asyncio.Queue, cid: str, created: int, model_id: str, keepalive: bool = False) -> AsyncGenerator[str, None]:
     in_think = False
 
     while True:
         try:
-            type_, data = await asyncio.wait_for(queue.get(), timeout=_KEEPALIVE_INTERVAL)
+            type_, data = await asyncio.wait_for(queue.get(), timeout=_KEEPALIVE_INTERVAL if keepalive else None)
         except asyncio.TimeoutError:
             yield ": keepalive\n\n"
             continue
@@ -258,6 +263,8 @@ def serve(
     model_id: str = "nori",
     narration: bool = True,
     static_dirs: dict[str, str] | None = None,
+    cache: bool = False,
+    keepalive: bool = False,
 ) -> None:
     """Start an OpenAI-compatible chat server backed by a nori Agent.
 
@@ -273,6 +280,6 @@ def serve(
     except ImportError:
         raise ImportError("uvicorn is required. Install with: uv add 'nori[server]'")
 
-    app = make_app(agent_factory, model_id=model_id, narration=narration, static_dirs=static_dirs)
+    app = make_app(agent_factory, model_id=model_id, narration=narration, static_dirs=static_dirs, cache=cache, keepalive=keepalive)
     print(f"nori chatbot listening on http://{host}:{port}/v1", flush=True)
     uvicorn.run(app, host=host, port=port)

@@ -10,8 +10,8 @@ Then in Open WebUI:
     API key: nori  (any non-empty string)
 """
 
+import config  # noqa: F401 — loads nori.configure defaults
 from nori import Agent, serve
-from nori.model import Model
 from nori.tools.bash import Bash
 
 
@@ -24,7 +24,6 @@ When asked about the system, files, or anything that benefits from a live check,
 def make_agent():
     return Agent(
         name="assistant",
-        model=Model.GPT4O_MINI,
         system_prompt=SYSTEM_PROMPT,
         tools=[Bash],
         max_turns=20,

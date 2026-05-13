@@ -14,13 +14,50 @@ Then point Open WebUI (or any OpenAI-compatible client) at http://localhost:7732
 """
 
 import asyncio
+import hashlib
 import json
 import logging
 import time
 import uuid
+from collections import OrderedDict
 from typing import AsyncGenerator, Callable
 
 logger = logging.getLogger("nori.chatbot")
+
+_KEEPALIVE_INTERVAL = 5  # seconds between SSE keepalive pings
+_CACHE_TTL = 300         # seconds before a cached response expires
+_CACHE_MAX = 128         # max entries in the LRU cache
+
+
+class _TTLCache:
+    """Simple LRU cache with per-entry TTL."""
+
+    def __init__(self, maxsize: int, ttl: float):
+        self._maxsize = maxsize
+        self._ttl = ttl
+        self._store: OrderedDict[str, tuple[float, str]] = OrderedDict()
+
+    def get(self, key: str) -> str | None:
+        if key not in self._store:
+            return None
+        ts, value = self._store[key]
+        if time.monotonic() - ts > self._ttl:
+            del self._store[key]
+            return None
+        self._store.move_to_end(key)
+        return value
+
+    def set(self, key: str, value: str) -> None:
+        if key in self._store:
+            self._store.move_to_end(key)
+        self._store[key] = (time.monotonic(), value)
+        if len(self._store) > self._maxsize:
+            self._store.popitem(last=False)
+
+
+def _cache_key(messages: list) -> str:
+    payload = json.dumps([{"role": m.role, "content": m.content} for m in messages], sort_keys=True)
+    return hashlib.sha256(payload.encode()).hexdigest()
 
 
 def make_app(
@@ -50,6 +87,8 @@ def make_app(
         allow_headers=["*"],
     )
 
+    cache = _TTLCache(maxsize=_CACHE_MAX, ttl=_CACHE_TTL)
+
     class Message(BaseModel):
         role: str
         content: str
@@ -68,6 +107,20 @@ def make_app(
 
     @app.post("/v1/chat/completions")
     async def chat(req: ChatRequest):
+        cid = f"chatcmpl-{uuid.uuid4().hex[:12]}"
+        created = int(time.time())
+        key = _cache_key(req.messages)
+
+        cached = cache.get(key)
+        if cached is not None:
+            logger.debug("cache hit cid=%s", cid)
+            if req.stream:
+                return StreamingResponse(
+                    _stream_cached(cached, cid, created, model_id),
+                    media_type="text/event-stream",
+                )
+            return _non_stream_response(cached, cid, created, model_id, 0, 0)
+
         agent = agent_factory()
 
         last_user_idx = max(
@@ -81,8 +134,6 @@ def make_app(
             agent._history.append({"role": msg.role, "content": msg.content})
 
         prompt = req.messages[last_user_idx].content
-        cid = f"chatcmpl-{uuid.uuid4().hex[:12]}"
-        created = int(time.time())
 
         if req.stream:
             queue: asyncio.Queue = asyncio.Queue()
@@ -99,6 +150,7 @@ def make_app(
                     result = await agent.run(prompt)
                     tc = agent.token_counts
                     logger.debug("chat cid=%s turns=%d tokens=%d", cid, agent.turn_count, tc["prompt"] + tc["completion"])
+                    cache.set(key, result)
                     queue.put_nowait(("done", result))
                 except Exception as e:
                     queue.put_nowait(("error", str(e)))
@@ -110,7 +162,7 @@ def make_app(
                 media_type="text/event-stream",
             )
 
-        # Non-streaming: run to completion, prepend narration as <think> block.
+        # Non-streaming path
         narration_lines: list[str] = []
         if narration:
             agent.narration = True
@@ -120,32 +172,40 @@ def make_app(
             agent.on_narration = _collect
 
         result = await agent.run(prompt)
+        cache.set(key, result)
 
         if narration_lines:
             result = f"<think>\n{chr(10).join(narration_lines)}\n</think>\n{result}"
 
         tc = agent.token_counts
         logger.debug("chat cid=%s turns=%d tokens=%d", cid, agent.turn_count, tc["prompt"] + tc["completion"])
-
-        return {
-            "id": cid,
-            "object": "chat.completion",
-            "created": created,
-            "model": model_id,
-            "choices": [
-                {"index": 0, "message": {"role": "assistant", "content": result}, "finish_reason": "stop"}
-            ],
-            "usage": {"prompt_tokens": tc["prompt"], "completion_tokens": tc["completion"], "total_tokens": tc["prompt"] + tc["completion"]},
-        }
+        return _non_stream_response(result, cid, created, model_id, tc["prompt"], tc["completion"])
 
     return app
+
+
+def _non_stream_response(content: str, cid: str, created: int, model_id: str, prompt_tokens: int, completion_tokens: int) -> dict:
+    return {
+        "id": cid,
+        "object": "chat.completion",
+        "created": created,
+        "model": model_id,
+        "choices": [
+            {"index": 0, "message": {"role": "assistant", "content": content}, "finish_reason": "stop"}
+        ],
+        "usage": {"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens, "total_tokens": prompt_tokens + completion_tokens},
+    }
 
 
 async def _stream_live(queue: asyncio.Queue, cid: str, created: int, model_id: str) -> AsyncGenerator[str, None]:
     in_think = False
 
     while True:
-        type_, data = await queue.get()
+        try:
+            type_, data = await asyncio.wait_for(queue.get(), timeout=_KEEPALIVE_INTERVAL)
+        except asyncio.TimeoutError:
+            yield ": keepalive\n\n"
+            continue
 
         if type_ == "narration":
             if not in_think:
@@ -168,6 +228,16 @@ async def _stream_live(queue: asyncio.Queue, cid: str, created: int, model_id: s
             yield _chunk(cid, created, model_id, {"content": f"Error: {data}"}, finish_reason="stop")
             yield "data: [DONE]\n\n"
             break
+
+
+async def _stream_cached(text: str, cid: str, created: int, model_id: str) -> AsyncGenerator[str, None]:
+    yield _chunk(cid, created, model_id, {"role": "assistant", "content": ""})
+    words = text.split(" ")
+    for i, word in enumerate(words):
+        content = word if i == len(words) - 1 else word + " "
+        yield _chunk(cid, created, model_id, {"content": content})
+    yield _chunk(cid, created, model_id, {}, finish_reason="stop")
+    yield "data: [DONE]\n\n"
 
 
 def _chunk(cid: str, created: int, model_id: str, delta: dict, finish_reason=None) -> str:

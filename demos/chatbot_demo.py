@@ -24,6 +24,7 @@ When asked about the system, files, or anything that benefits from a live check,
 def make_agent():
     return Agent(
         name="assistant",
+        model=config.FAST_MODEL,
         system_prompt=SYSTEM_PROMPT,
         tools=[Bash],
         max_turns=20,

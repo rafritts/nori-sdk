@@ -73,7 +73,10 @@ def make_app(agent_factory: Callable, model_id: str = "nori", narration: bool = 
         narration_lines: list[str] = []
         if narration:
             agent.narration = True
-            agent.on_narration = lambda msg: narration_lines.append(msg)
+            def _collect(msg):
+                narration_lines.append(msg)
+                logger.info(msg)
+            agent.on_narration = _collect
 
         result = await agent.run(prompt)
 

@@ -3,7 +3,7 @@ import nori.config as config
 from nori.config import configure, reset, NotifyConfig
 from nori.anti_spin import Checkpoint
 from nori.context import ContextFile
-from nori.enums import CheckpointScrutiny, ContextRole, ContextWindow, ResizeMode, SelfModify
+from nori.enums import CheckpointScrutiny, ContextRole, ContextWindow, OutputFormat, ResizeMode, SelfModify
 from nori.providers import Provider
 from nori.image import Image
 from nori.model import Model
@@ -18,6 +18,7 @@ __all__ = [
     "reset",
     "NotifyConfig",
     "Checkpoint",
+    "OutputFormat",
     "CheckpointScrutiny",
     "ContextFile",
     "ContextRole",

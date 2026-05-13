@@ -44,3 +44,9 @@ class Propagation(Enum):
 class ScratchpadUsage(Enum):
     REQUIRED  = "required"   # treat scratchpad as mandatory — read/write before producing output
     SELECTIVE = "selective"  # write only critical information; do not clutter with noise
+
+
+class OutputFormat(Enum):
+    TEXT             = "text"
+    OPENAI_CHAT      = "openai_chat"
+    OPENAI_RESPONSES = "openai_responses"

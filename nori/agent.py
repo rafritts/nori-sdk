@@ -10,7 +10,7 @@ from openai.types.chat import ChatCompletionMessage
 from nori.anti_spin import Checkpoint, evaluate_checkpoint
 import nori.config as config
 from nori.context import ContextFile, inject_summary, update_running_summary
-from nori.enums import ContextRole, Propagation, SelfModify
+from nori.enums import ContextRole, OutputFormat, Propagation, SelfModify
 from nori.exceptions import AntiSpinTerminated, MaxTurnsExceeded, RunTimeout
 from nori.mcp.server import MCPServer
 from nori.model import Model
@@ -50,6 +50,7 @@ class Agent:
         tool_timeout: float | None = _UNSET,
         run_timeout: float | None = _UNSET,
         scratchpad: Scratchpad | None = None,
+        output_format: OutputFormat = OutputFormat.TEXT,
     ):
         _d = config.get_defaults()
         model = model or _d.model
@@ -92,6 +93,7 @@ class Agent:
         self._mcp_servers: list[MCPServer] = []
         self._self_modify = self_modify
         self._scratchpad: Scratchpad | None = scratchpad
+        self.output_format = output_format
         self._checkpoint = checkpoint
         self._register_tools(tools, scratchpad, self_modify, _d)
         self._register_deferred_tools(deferred_tools, show_tool_stubs, _d)
@@ -662,7 +664,7 @@ class Agent:
         images: list = None,
         _trace_id: str | None = None,
         _parent_span_id: str | None = None,
-    ) -> str:
+    ) -> str | dict:
         self._trace_id = _trace_id or str(uuid.uuid4())
         self._span_id = uuid.uuid4().hex[:8]
         if _parent_span_id:
@@ -705,6 +707,10 @@ class Agent:
             async with asyncio.timeout(self.run_timeout):
                 result = await self._run_loop()
             self._elapsed = time.perf_counter() - self._run_start
+            if self.output_format == OutputFormat.OPENAI_CHAT:
+                return {"role": "assistant", "content": result}
+            if self.output_format == OutputFormat.OPENAI_RESPONSES:
+                return {"role": "assistant", "content": [{"type": "output_text", "text": result}]}
             return result
         except asyncio.TimeoutError:
             self._elapsed = time.perf_counter() - self._run_start

@@ -1,4 +1,5 @@
 from nori.agent import Agent
+from nori.chatbot import serve
 import nori.config as config
 from nori.config import configure, reset, NotifyConfig
 from nori.anti_spin import Checkpoint
@@ -13,6 +14,7 @@ from nori.enums import Propagation, ScratchpadUsage
 
 __all__ = [
     "Agent",
+    "serve",
     "config",
     "configure",
     "reset",

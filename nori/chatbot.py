@@ -14,50 +14,15 @@ Then point Open WebUI (or any OpenAI-compatible client) at http://localhost:7732
 """
 
 import asyncio
-import hashlib
 import json
 import logging
 import time
 import uuid
-from collections import OrderedDict
 from typing import AsyncGenerator, Callable
 
 logger = logging.getLogger("nori.chatbot")
 
 _KEEPALIVE_INTERVAL = 5  # seconds between SSE keepalive pings
-_CACHE_TTL = 180         # seconds before a cached response expires
-_CACHE_MAX = 128         # max entries in the LRU cache
-
-
-class _TTLCache:
-    """Simple LRU cache with per-entry TTL."""
-
-    def __init__(self, maxsize: int, ttl: float):
-        self._maxsize = maxsize
-        self._ttl = ttl
-        self._store: OrderedDict[str, tuple[float, str]] = OrderedDict()
-
-    def get(self, key: str) -> str | None:
-        if key not in self._store:
-            return None
-        ts, value = self._store[key]
-        if time.monotonic() - ts > self._ttl:
-            del self._store[key]
-            return None
-        self._store.move_to_end(key)
-        return value
-
-    def set(self, key: str, value: str) -> None:
-        if key in self._store:
-            self._store.move_to_end(key)
-        self._store[key] = (time.monotonic(), value)
-        if len(self._store) > self._maxsize:
-            self._store.popitem(last=False)
-
-
-def _cache_key(messages: list) -> str:
-    payload = json.dumps([{"role": m.role, "content": m.content} for m in messages], sort_keys=True)
-    return hashlib.sha256(payload.encode()).hexdigest()
 
 
 def make_app(
@@ -65,8 +30,6 @@ def make_app(
     model_id: str = "nori",
     narration: bool = True,
     static_dirs: dict[str, str] | None = None,
-    cache: bool = False,
-    cache_ttl: int = _CACHE_TTL,
     keepalive: bool = False,
 ) -> "FastAPI":
     from fastapi import FastAPI
@@ -90,8 +53,6 @@ def make_app(
         allow_headers=["*"],
     )
 
-    _cache = _TTLCache(maxsize=_CACHE_MAX, ttl=cache_ttl) if cache else None
-
     class Message(BaseModel):
         role: str
         content: str
@@ -112,18 +73,6 @@ def make_app(
     async def chat(req: ChatRequest):
         cid = f"chatcmpl-{uuid.uuid4().hex[:12]}"
         created = int(time.time())
-        key = _cache_key(req.messages) if _cache is not None else None
-
-        if _cache is not None and key is not None:
-            cached = _cache.get(key)
-            if cached is not None:
-                logger.debug("cache hit cid=%s", cid)
-                if req.stream:
-                    return StreamingResponse(
-                        _stream_cached(cached, cid, created, model_id),
-                        media_type="text/event-stream",
-                    )
-                return _non_stream_response(cached, cid, created, model_id, 0, 0)
 
         agent = agent_factory()
 
@@ -154,8 +103,6 @@ def make_app(
                     result = await agent.run(prompt)
                     tc = agent.token_counts
                     logger.debug("chat cid=%s turns=%d tokens=%d", cid, agent.turn_count, tc["prompt"] + tc["completion"])
-                    if _cache is not None and key is not None:
-                        _cache.set(key, result)
                     queue.put_nowait(("done", result))
                 except Exception as e:
                     queue.put_nowait(("error", str(e)))
@@ -177,8 +124,6 @@ def make_app(
             agent.on_narration = _collect
 
         result = await agent.run(prompt)
-        if _cache is not None and key is not None:
-            _cache.set(key, result)
 
         if narration_lines:
             result = f"<think>\n{chr(10).join(narration_lines)}\n</think>\n{result}"
@@ -236,16 +181,6 @@ async def _stream_live(queue: asyncio.Queue, cid: str, created: int, model_id: s
             break
 
 
-async def _stream_cached(text: str, cid: str, created: int, model_id: str) -> AsyncGenerator[str, None]:
-    yield _chunk(cid, created, model_id, {"role": "assistant", "content": ""})
-    words = text.split(" ")
-    for i, word in enumerate(words):
-        content = word if i == len(words) - 1 else word + " "
-        yield _chunk(cid, created, model_id, {"content": content})
-    yield _chunk(cid, created, model_id, {}, finish_reason="stop")
-    yield "data: [DONE]\n\n"
-
-
 def _chunk(cid: str, created: int, model_id: str, delta: dict, finish_reason=None) -> str:
     payload = {
         "id": cid,
@@ -264,8 +199,6 @@ def serve(
     model_id: str = "nori",
     narration: bool = True,
     static_dirs: dict[str, str] | None = None,
-    cache: bool = False,
-    cache_ttl: int = _CACHE_TTL,
     keepalive: bool = False,
 ) -> None:
     """Start an OpenAI-compatible chat server backed by a nori Agent.
@@ -282,6 +215,6 @@ def serve(
     except ImportError:
         raise ImportError("uvicorn is required. Install with: uv add 'nori[server]'")
 
-    app = make_app(agent_factory, model_id=model_id, narration=narration, static_dirs=static_dirs, cache=cache, cache_ttl=cache_ttl, keepalive=keepalive)
+    app = make_app(agent_factory, model_id=model_id, narration=narration, static_dirs=static_dirs, keepalive=keepalive)
     print(f"nori chatbot listening on http://{host}:{port}/v1", flush=True)
     uvicorn.run(app, host=host, port=port)

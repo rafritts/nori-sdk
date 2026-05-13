@@ -27,7 +27,15 @@ def make_app(agent_factory: Callable, model_id: str = "nori") -> "FastAPI":
     from fastapi.responses import StreamingResponse
     from pydantic import BaseModel
 
+    from fastapi.middleware.cors import CORSMiddleware
+
     app = FastAPI(title="nori-chatbot", docs_url=None, redoc_url=None)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     class Message(BaseModel):
         role: str

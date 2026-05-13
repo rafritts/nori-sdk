@@ -23,13 +23,26 @@ from typing import AsyncGenerator, Callable
 logger = logging.getLogger("nori.chatbot")
 
 
-def make_app(agent_factory: Callable, model_id: str = "nori", narration: bool = True) -> "FastAPI":
+def make_app(
+    agent_factory: Callable,
+    model_id: str = "nori",
+    narration: bool = True,
+    static_dirs: dict[str, str] | None = None,
+) -> "FastAPI":
     from fastapi import FastAPI
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import StreamingResponse
     from pydantic import BaseModel
 
+    import os
     app = FastAPI(title="nori-chatbot", docs_url=None, redoc_url=None)
+
+    if static_dirs:
+        from fastapi.staticfiles import StaticFiles
+        for url_path, fs_path in static_dirs.items():
+            os.makedirs(fs_path, exist_ok=True)
+            app.mount(url_path, StaticFiles(directory=fs_path), name=url_path.lstrip("/"))
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -174,6 +187,7 @@ def serve(
     port: int = 7732,
     model_id: str = "nori",
     narration: bool = True,
+    static_dirs: dict[str, str] | None = None,
 ) -> None:
     """Start an OpenAI-compatible chat server backed by a nori Agent.
 
@@ -189,6 +203,6 @@ def serve(
     except ImportError:
         raise ImportError("uvicorn is required. Install with: uv add 'nori[server]'")
 
-    app = make_app(agent_factory, model_id=model_id, narration=narration)
+    app = make_app(agent_factory, model_id=model_id, narration=narration, static_dirs=static_dirs)
     print(f"nori chatbot listening on http://{host}:{port}/v1", flush=True)
     uvicorn.run(app, host=host, port=port)

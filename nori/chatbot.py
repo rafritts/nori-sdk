@@ -3,16 +3,17 @@ OpenAI-compatible chat server backed by a nori Agent.
 
 Usage:
     from nori.chatbot import serve
-    from nori import Agent, Model
+    from nori import Agent
 
     def make_agent():
-        return Agent(name="assistant", model=Model.GPT4O_MINI, ...)
+        return Agent(name="assistant", ...)
 
-    serve(make_agent, port=8000)
+    serve(make_agent, port=7732)
 
-Then point Open WebUI (or any OpenAI-compatible client) at http://localhost:8000/v1.
+Then point Open WebUI (or any OpenAI-compatible client) at http://localhost:7732/v1.
 """
 
+import asyncio
 import json
 import logging
 import time
@@ -24,10 +25,9 @@ logger = logging.getLogger("nori.chatbot")
 
 def make_app(agent_factory: Callable, model_id: str = "nori", narration: bool = True) -> "FastAPI":
     from fastapi import FastAPI
+    from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import StreamingResponse
     from pydantic import BaseModel
-
-    from fastapi.middleware.cors import CORSMiddleware
 
     app = FastAPI(title="nori-chatbot", docs_url=None, redoc_url=None)
     app.add_middleware(
@@ -64,18 +64,46 @@ def make_app(agent_factory: Callable, model_id: str = "nori", narration: bool = 
         if last_user_idx is None:
             return {"error": "no user message in request"}
 
-        # Pre-populate agent history with prior turns so the agent has full context.
         for msg in req.messages[:last_user_idx]:
             agent._history.append({"role": msg.role, "content": msg.content})
 
         prompt = req.messages[last_user_idx].content
+        cid = f"chatcmpl-{uuid.uuid4().hex[:12]}"
+        created = int(time.time())
 
+        if req.stream:
+            queue: asyncio.Queue = asyncio.Queue()
+
+            if narration:
+                agent.narration = True
+                def _on_narration(msg):
+                    print(msg, flush=True)
+                    queue.put_nowait(("narration", msg))
+                agent.on_narration = _on_narration
+
+            async def _run():
+                try:
+                    result = await agent.run(prompt)
+                    tc = agent.token_counts
+                    logger.debug("chat cid=%s turns=%d tokens=%d", cid, agent.turn_count, tc["prompt"] + tc["completion"])
+                    queue.put_nowait(("done", result))
+                except Exception as e:
+                    queue.put_nowait(("error", str(e)))
+
+            asyncio.create_task(_run())
+
+            return StreamingResponse(
+                _stream_live(queue, cid, created, model_id),
+                media_type="text/event-stream",
+            )
+
+        # Non-streaming: run to completion, prepend narration as <think> block.
         narration_lines: list[str] = []
         if narration:
             agent.narration = True
             def _collect(msg):
+                print(msg, flush=True)
                 narration_lines.append(msg)
-                logger.info(msg)
             agent.on_narration = _collect
 
         result = await agent.run(prompt)
@@ -83,17 +111,8 @@ def make_app(agent_factory: Callable, model_id: str = "nori", narration: bool = 
         if narration_lines:
             result = f"<think>\n{chr(10).join(narration_lines)}\n</think>\n{result}"
 
-        cid = f"chatcmpl-{uuid.uuid4().hex[:12]}"
-        created = int(time.time())
         tc = agent.token_counts
-
         logger.debug("chat cid=%s turns=%d tokens=%d", cid, agent.turn_count, tc["prompt"] + tc["completion"])
-
-        if req.stream:
-            return StreamingResponse(
-                _stream(result, cid, created, model_id),
-                media_type="text/event-stream",
-            )
 
         return {
             "id": cid,
@@ -109,14 +128,33 @@ def make_app(agent_factory: Callable, model_id: str = "nori", narration: bool = 
     return app
 
 
-async def _stream(text: str, cid: str, created: int, model_id: str) -> AsyncGenerator[str, None]:
-    yield _chunk(cid, created, model_id, {"role": "assistant", "content": ""})
-    words = text.split(" ")
-    for i, word in enumerate(words):
-        content = word if i == len(words) - 1 else word + " "
-        yield _chunk(cid, created, model_id, {"content": content})
-    yield _chunk(cid, created, model_id, {}, finish_reason="stop")
-    yield "data: [DONE]\n\n"
+async def _stream_live(queue: asyncio.Queue, cid: str, created: int, model_id: str) -> AsyncGenerator[str, None]:
+    in_think = False
+
+    while True:
+        type_, data = await queue.get()
+
+        if type_ == "narration":
+            if not in_think:
+                yield _chunk(cid, created, model_id, {"role": "assistant", "content": "<think>\n"})
+                in_think = True
+            yield _chunk(cid, created, model_id, {"content": data + "\n"})
+
+        elif type_ == "done":
+            if in_think:
+                yield _chunk(cid, created, model_id, {"content": "</think>\n"})
+            words = data.split(" ")
+            for i, word in enumerate(words):
+                content = word if i == len(words) - 1 else word + " "
+                yield _chunk(cid, created, model_id, {"content": content})
+            yield _chunk(cid, created, model_id, {}, finish_reason="stop")
+            yield "data: [DONE]\n\n"
+            break
+
+        elif type_ == "error":
+            yield _chunk(cid, created, model_id, {"content": f"Error: {data}"}, finish_reason="stop")
+            yield "data: [DONE]\n\n"
+            break
 
 
 def _chunk(cid: str, created: int, model_id: str, delta: dict, finish_reason=None) -> str:
@@ -143,9 +181,8 @@ def serve(
     per request — required so each user gets clean state and concurrent requests
     don't share history.
 
-    narration=True prepends agent tool calls and intermediate steps as a
-    <think> block, rendered as a collapsible reasoning section in Open WebUI
-    and other compatible frontends.
+    narration=True (default) streams tool calls and intermediate steps as a
+    live <think> block. Set narration=False to disable.
     """
     try:
         import uvicorn
@@ -153,5 +190,5 @@ def serve(
         raise ImportError("uvicorn is required. Install with: uv add 'nori[server]'")
 
     app = make_app(agent_factory, model_id=model_id, narration=narration)
-    logger.info("nori chatbot listening on http://%s:%d/v1  (model_id=%s)", host, port, model_id)
+    print(f"nori chatbot listening on http://{host}:{port}/v1", flush=True)
     uvicorn.run(app, host=host, port=port)

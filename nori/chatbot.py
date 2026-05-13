@@ -22,7 +22,7 @@ from typing import AsyncGenerator, Callable
 logger = logging.getLogger("nori.chatbot")
 
 
-def make_app(agent_factory: Callable, model_id: str = "nori") -> "FastAPI":
+def make_app(agent_factory: Callable, model_id: str = "nori", narration: bool = True) -> "FastAPI":
     from fastapi import FastAPI
     from fastapi.responses import StreamingResponse
     from pydantic import BaseModel
@@ -69,7 +69,16 @@ def make_app(agent_factory: Callable, model_id: str = "nori") -> "FastAPI":
             agent._history.append({"role": msg.role, "content": msg.content})
 
         prompt = req.messages[last_user_idx].content
+
+        narration_lines: list[str] = []
+        if narration:
+            agent.narration = True
+            agent.on_narration = lambda msg: narration_lines.append(msg)
+
         result = await agent.run(prompt)
+
+        if narration_lines:
+            result = f"<think>\n{chr(10).join(narration_lines)}\n</think>\n{result}"
 
         cid = f"chatcmpl-{uuid.uuid4().hex[:12]}"
         created = int(time.time())
@@ -118,18 +127,28 @@ def _chunk(cid: str, created: int, model_id: str, delta: dict, finish_reason=Non
     return f"data: {json.dumps(payload)}\n\n"
 
 
-def serve(agent_factory: Callable, host: str = "0.0.0.0", port: int = 7732, model_id: str = "nori") -> None:
+def serve(
+    agent_factory: Callable,
+    host: str = "0.0.0.0",
+    port: int = 7732,
+    model_id: str = "nori",
+    narration: bool = True,
+) -> None:
     """Start an OpenAI-compatible chat server backed by a nori Agent.
 
     agent_factory must be a zero-argument callable that returns a fresh Agent
     per request — required so each user gets clean state and concurrent requests
     don't share history.
+
+    narration=True prepends agent tool calls and intermediate steps as a
+    <think> block, rendered as a collapsible reasoning section in Open WebUI
+    and other compatible frontends.
     """
     try:
         import uvicorn
     except ImportError:
         raise ImportError("uvicorn is required. Install with: uv add 'nori[server]'")
 
-    app = make_app(agent_factory, model_id=model_id)
+    app = make_app(agent_factory, model_id=model_id, narration=narration)
     logger.info("nori chatbot listening on http://%s:%d/v1  (model_id=%s)", host, port, model_id)
     uvicorn.run(app, host=host, port=port)

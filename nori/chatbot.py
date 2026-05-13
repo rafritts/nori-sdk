@@ -25,7 +25,7 @@ from typing import AsyncGenerator, Callable
 logger = logging.getLogger("nori.chatbot")
 
 _KEEPALIVE_INTERVAL = 5  # seconds between SSE keepalive pings
-_CACHE_TTL = 300         # seconds before a cached response expires
+_CACHE_TTL = 180         # seconds before a cached response expires
 _CACHE_MAX = 128         # max entries in the LRU cache
 
 
@@ -66,6 +66,7 @@ def make_app(
     narration: bool = True,
     static_dirs: dict[str, str] | None = None,
     cache: bool = False,
+    cache_ttl: int = _CACHE_TTL,
     keepalive: bool = False,
 ) -> "FastAPI":
     from fastapi import FastAPI
@@ -89,7 +90,7 @@ def make_app(
         allow_headers=["*"],
     )
 
-    _cache = _TTLCache(maxsize=_CACHE_MAX, ttl=_CACHE_TTL) if cache else None
+    _cache = _TTLCache(maxsize=_CACHE_MAX, ttl=cache_ttl) if cache else None
 
     class Message(BaseModel):
         role: str
@@ -264,6 +265,7 @@ def serve(
     narration: bool = True,
     static_dirs: dict[str, str] | None = None,
     cache: bool = False,
+    cache_ttl: int = _CACHE_TTL,
     keepalive: bool = False,
 ) -> None:
     """Start an OpenAI-compatible chat server backed by a nori Agent.
@@ -280,6 +282,6 @@ def serve(
     except ImportError:
         raise ImportError("uvicorn is required. Install with: uv add 'nori[server]'")
 
-    app = make_app(agent_factory, model_id=model_id, narration=narration, static_dirs=static_dirs, cache=cache, keepalive=keepalive)
+    app = make_app(agent_factory, model_id=model_id, narration=narration, static_dirs=static_dirs, cache=cache, cache_ttl=cache_ttl, keepalive=keepalive)
     print(f"nori chatbot listening on http://{host}:{port}/v1", flush=True)
     uvicorn.run(app, host=host, port=port)

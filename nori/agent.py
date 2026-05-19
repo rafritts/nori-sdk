@@ -266,10 +266,6 @@ class Agent:
             props["reason"] = {"type": "string", "description": "Your reason for calling this tool."}
         if "reason" not in required:
             required.append("reason")
-        if "summary" not in props:
-            props["summary"] = {"type": "string", "description": "One-line narration summary of what this tool call found or did."}
-        if "summary" not in required:
-            required.append("summary")
         return schema
 
     # ── Tool interface (Agent as a tool) ─────────────────────────────────────
@@ -411,15 +407,14 @@ class Agent:
         narration_logger.debug(msg)
         self.on_narration(msg)
 
-    def _narrate_elapsed(self, tool_name: str, elapsed: float, call_id: str | None, is_parallel: bool, summary: str = "") -> None:
+    def _narrate_elapsed(self, tool_name: str, elapsed: float, call_id: str | None, is_parallel: bool) -> None:
         if not self.narration:
             return
         if is_parallel and self.narration_call_id and call_id:
             name_part = f"{tool_name}-{call_id}"
         else:
             name_part = tool_name
-        suffix = f"[{elapsed:.2f}s | {summary}]" if summary else f"[{elapsed:.2f}s]"
-        msg = f"{self.narrator_prefix}{self.name} → {name_part}{suffix}"
+        msg = f"{self.narrator_prefix}{self.name} → {name_part}[{elapsed:.2f}s]"
         narration_logger.debug(msg)
         self.on_narration(msg)
 
@@ -533,7 +528,6 @@ class Agent:
         fn = self._tools[tc.function.name]
         args = json.loads(tc.function.arguments)
         reason = args.get("reason", "")
-        call_summary = args.pop("summary", "")
         tool_span_id = uuid.uuid4().hex[:8]
         tool_call_id = tool_span_id[:4]
         self._narrate(tc.function.name, reason, tool_call_id, is_parallel)
@@ -579,7 +573,7 @@ class Agent:
         if self.summarize_tool_output and getattr(fn, "summarize_output", True):
             content = await summarize(content, reason, self._client, self.model)
         logger.debug("tool_result name=%s result=%s elapsed=%.2fs", tc.function.name, content, tool_elapsed)
-        self._narrate_elapsed(tc.function.name, tool_elapsed, tool_call_id, is_parallel, call_summary)
+        self._narrate_elapsed(tc.function.name, tool_elapsed, tool_call_id, is_parallel)
         self._narrate_result(tc.function.name, content, tool_call_id, is_parallel)
         if self.auditor:
             self.auditor.tool_result(

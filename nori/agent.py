@@ -256,7 +256,7 @@ class Agent:
 
     @staticmethod
     def _inject_reason_into_schema(schema: dict) -> dict:
-        """Ensure a discovered MCP tool schema has 'reason' in its required params."""
+        """Ensure a discovered MCP tool schema has 'reason' and 'summary' in its required params."""
         import copy
         schema = copy.deepcopy(schema)
         params = schema.get("function", {}).get("parameters", {})
@@ -266,6 +266,10 @@ class Agent:
             props["reason"] = {"type": "string", "description": "Your reason for calling this tool."}
         if "reason" not in required:
             required.append("reason")
+        if "summary" not in props:
+            props["summary"] = {"type": "string", "description": "One-line narration summary of what this tool call found or did. Be specific: include key values, filenames, counts, or outcomes — not just 'read file' or 'ran command'."}
+        if "summary" not in required:
+            required.append("summary")
         return schema
 
     # ── Tool interface (Agent as a tool) ─────────────────────────────────────

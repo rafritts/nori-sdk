@@ -1,6 +1,9 @@
 import inspect
 import functools
+import logging
 from typing import get_type_hints, Callable
+
+logger = logging.getLogger("nori.tool")
 
 _TYPE_MAP = {
     str: "string",
@@ -30,6 +33,15 @@ def tool(_fn: Callable = None, *, summarize_output: bool = True):
             properties[name] = {"type": _TYPE_MAP.get(hints.get(name), "string")}
             if param.default is inspect.Parameter.empty:
                 required.append(name)
+
+        if not fn.__doc__:
+            logger.warning("@tool '%s' has no docstring — the model will have no description of what it does.", fn.__name__)
+        else:
+            for name in sig.parameters:
+                if name in ("reason", "summary"):
+                    continue
+                if name not in fn.__doc__:
+                    logger.warning("@tool '%s': parameter '%s' is not mentioned in the docstring.", fn.__name__, name)
 
         schema = {
             "type": "function",

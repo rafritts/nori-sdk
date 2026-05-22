@@ -1,3 +1,5 @@
+import logging
+import pytest
 from nori.tool import tool
 
 
@@ -9,19 +11,19 @@ def get_weather(city: str) -> str:
 
 @tool
 def compute(x: int, y: float, flag: bool, items: list, data: dict) -> str:
-    """Multi-type function."""
+    """Multi-type function. Takes x, y, flag, items, and data."""
     return ""
 
 
 @tool(summarize_output=False)
 def raw_output(path: str) -> str:
-    """Returns raw output."""
+    """Returns raw output for the given path."""
     return ""
 
 
 @tool
 def with_default(city: str, units: str = "metric") -> str:
-    """Has an optional param."""
+    """Has an optional param. Takes city and units."""
     return ""
 
 
@@ -94,6 +96,35 @@ def test_optional_param_not_in_required():
 def test_required_param_in_required():
     required = _schema(with_default)["parameters"]["required"]
     assert "city" in required
+
+
+def test_warning_no_docstring(caplog):
+    with caplog.at_level(logging.WARNING, logger="nori.tool"):
+        @tool
+        def no_doc(city: str) -> str:
+            return city
+
+    assert any("no_doc" in r.message and "no docstring" in r.message for r in caplog.records)
+
+
+def test_warning_param_not_in_docstring(caplog):
+    with caplog.at_level(logging.WARNING, logger="nori.tool"):
+        @tool
+        def missing_param_doc(city: str) -> str:
+            """Get the weather."""
+            return city
+
+    assert any("city" in r.message for r in caplog.records)
+
+
+def test_no_warning_when_docstring_covers_all_params(caplog):
+    with caplog.at_level(logging.WARNING, logger="nori.tool"):
+        @tool
+        def full_doc(city: str) -> str:
+            """Get the weather for a city."""
+            return city
+
+    assert not caplog.records
 
 
 def test_async_function_wrapped():

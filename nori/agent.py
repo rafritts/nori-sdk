@@ -300,11 +300,14 @@ class Agent:
                 allow=self._permissions._allow,
                 deny=self._permissions._deny,
             )
+        deferred = list(self._deferred_tools.values()) if self._deferred_tools else None
         sub = Agent(
             name=self.name,
             model=self._model,
             system_prompt=self.system_prompt,
             tools=list(self._tools.values()),
+            deferred_tools=deferred,
+            show_tool_stubs=self._show_tool_stubs,
             max_turns=self._max_turns,
             description=self.description,
             context_files=self._context_files,
@@ -316,6 +319,7 @@ class Agent:
             tool_timeout=self.tool_timeout,
             run_timeout=self.run_timeout,
             scratchpad=self._scratchpad,
+            output_format=self.output_format,
         )
         return await sub.run(task, _trace_id=self._trace_id, _parent_span_id=self._span_id)
 

@@ -31,6 +31,7 @@ def make_app(
     narration: bool = True,
     static_dirs: dict[str, str] | None = None,
     keepalive: bool = False,
+    response_filter: Callable[[str, list], str] | None = None,
 ) -> "FastAPI":
     from fastapi import FastAPI
     from fastapi.middleware.cors import CORSMiddleware
@@ -101,6 +102,8 @@ def make_app(
             async def _run():
                 try:
                     result = await agent.run(prompt)
+                    if response_filter:
+                        result = response_filter(result, agent.tool_calls)
                     tc = agent.token_counts
                     logger.debug("chat cid=%s turns=%d tokens=%d", cid, agent.turn_count, tc["prompt"] + tc["completion"])
                     queue.put_nowait(("done", result))
@@ -124,6 +127,8 @@ def make_app(
             agent.on_narration = _collect
 
         result = await agent.run(prompt)
+        if response_filter:
+            result = response_filter(result, agent.tool_calls)
 
         if narration_lines:
             result = f"<think>\n{chr(10).join(narration_lines)}\n</think>\n{result}"
@@ -200,6 +205,7 @@ def serve(
     narration: bool = True,
     static_dirs: dict[str, str] | None = None,
     keepalive: bool = False,
+    response_filter: Callable[[str, list], str] | None = None,
 ) -> None:
     """Start an OpenAI-compatible chat server backed by a nori Agent.
 
@@ -215,6 +221,6 @@ def serve(
     except ImportError:
         raise ImportError("uvicorn is required. Install with: uv add 'nori[server]'")
 
-    app = make_app(agent_factory, model_id=model_id, narration=narration, static_dirs=static_dirs, keepalive=keepalive)
+    app = make_app(agent_factory, model_id=model_id, narration=narration, static_dirs=static_dirs, keepalive=keepalive, response_filter=response_filter)
     print(f"nori chatbot listening on http://{host}:{port}/v1", flush=True)
     uvicorn.run(app, host=host, port=port)

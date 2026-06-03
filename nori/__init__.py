@@ -2,6 +2,7 @@ from nori.agent import Agent
 from nori.chatbot import serve
 import nori.config as config
 from nori.config import configure, reset, NotifyConfig
+from nori.concurrent import map, pipeline
 from nori.anti_spin import Checkpoint
 from nori.context import ContextFile
 from nori.enums import CheckpointScrutiny, ContextRole, ContextWindow, OutputFormat, ResizeMode, SelfModify
@@ -14,6 +15,8 @@ from nori.enums import Propagation, ScratchpadUsage
 
 __all__ = [
     "Agent",
+    "map",
+    "pipeline",
     "serve",
     "config",
     "configure",

@@ -10,6 +10,7 @@ dependencies = [
     "openai>=2.36.0",
     "pydantic>=2.13.4",
     "python-dotenv>=1.2.2",
+    "websockets>=16.0",
 ]
 
 [project.urls]
@@ -36,6 +37,7 @@ server = [
     "fastapi>=0.136.1",
     "uvicorn>=0.46.0",
 ]
+tower = ["websockets>=14.0"]
 all = [
     "nori-sdk[browser]",
     "nori-sdk[data]",
@@ -44,6 +46,11 @@ all = [
     "nori-sdk[mongo]",
     "nori-sdk[bedrock]",
     "nori-sdk[server]",
+    "nori-sdk[tower]",
+    "nori-sdk[mcp]",
+]
+mcp = [
+    "mcp>=1.0",
 ]
 
 [build-system]

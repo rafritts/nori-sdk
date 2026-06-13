@@ -2,6 +2,14 @@
 
 Nori supports the Model Context Protocol (MCP) as a first-class concept. An `MCPServer` is an explicit object — no magic string inference, no hidden config files.
 
+MCP support requires the optional `mcp` extra:
+
+```bash
+pip install "nori-sdk[mcp]"
+```
+
+When you pass `mcp_servers=` to an `Agent`, Nori connects to each server at the start of `run()`, discovers its tools via the MCP `tools/list` handshake, and registers them as native tools the model can call (each gets the standard `reason`/`summary` narration fields injected). Tool calls are dispatched over the live connection, and all servers are torn down when the run finishes. A server that fails to connect is logged and skipped — it won't abort the run. Both stdio (`command`/`args`) and HTTP/SSE (`url`) transports are supported.
+
 ```python
 from nori.mcp import MCPServer
 

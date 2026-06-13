@@ -9,6 +9,7 @@ from openai.types.chat import ChatCompletionMessage
 
 from nori.anti_spin import Checkpoint, evaluate_checkpoint
 import nori.config as config
+from nori import tower_sink as _tower_sink
 from nori.context import ContextFile, inject_summary, update_running_summary
 from nori.enums import ContextRole, OutputFormat, Propagation, SelfModify
 from nori.exceptions import AntiSpinTerminated, MaxTurnsExceeded, RunTimeout
@@ -37,6 +38,7 @@ class Agent:
         model: Model | None = None,
         system_prompt: str = "",
         tools: list = None,
+        mcp_servers: list[MCPServer] = None,
         deferred_tools: list | dict | None = None,
         show_tool_stubs: bool = False,
         max_turns: int | None = _UNSET,
@@ -90,7 +92,8 @@ class Agent:
         self._running_summary: str = ""
         self.max_context_chars: int = model.context_window
         self._compact_warning_injected: bool = False
-        self._mcp_servers: list[MCPServer] = []
+        self._mcp_servers: list[MCPServer] = list(mcp_servers) if mcp_servers else []
+        self._mcp_connections: list = []
         self._self_modify = self_modify
         self._scratchpad: Scratchpad | None = scratchpad
         self.output_format = output_format
@@ -254,6 +257,42 @@ class Agent:
     def remove_mcp_server(self, name: str) -> None:
         self._mcp_servers = [s for s in self._mcp_servers if s.name != name]
 
+    async def _connect_mcp(self) -> None:
+        """Connect to all configured MCP servers and register their tools."""
+        if not self._mcp_servers:
+            return
+        from nori.mcp.client import MCPConnection
+
+        for server in self._mcp_servers:
+            conn = MCPConnection(server)
+            try:
+                tools = await conn.connect()
+            except Exception as exc:
+                logger.error("mcp_connect_failed server=%s error=%s", server.name, exc)
+                await conn.aclose()
+                continue
+            self._mcp_connections.append(conn)
+            for t in tools:
+                name = t.schema["function"]["name"]
+                if name in self._tools:
+                    logger.warning(
+                        "mcp tool '%s' from server '%s' overrides an existing tool",
+                        name, server.name,
+                    )
+                self._tools[name] = t
+            logger.debug("mcp_connected server=%s tools=%d", server.name, len(tools))
+
+    async def _disconnect_mcp(self) -> None:
+        """Tear down MCP connections and unregister their tools."""
+        for conn in self._mcp_connections:
+            for t in conn.tools:
+                self._tools.pop(t.schema["function"]["name"], None)
+            try:
+                await conn.aclose()
+            except Exception as exc:
+                logger.warning("mcp_disconnect_error server=%s error=%s", conn.server.name, exc)
+        self._mcp_connections = []
+
     @staticmethod
     def _inject_reason_into_schema(schema: dict) -> dict:
         """Ensure a discovered MCP tool schema has 'reason' and 'summary' in its required params."""
@@ -327,6 +366,11 @@ class Agent:
         )
         return await sub.run(task, _trace_id=self._trace_id, _parent_span_id=self._span_id)
 
+    def _audit(self, method: str, **kwargs) -> None:
+        if self.auditor:
+            getattr(self.auditor, method)(**kwargs)
+        _tower_sink.emit(method, **kwargs)
+
     def _context_fill(self) -> float:
         if not self.max_context_chars:
             return 0.0
@@ -342,12 +386,12 @@ class Agent:
         narration_logger.debug(msg)
         if self.narration:
             self.on_narration(msg)
-        if self.auditor:
-            self.auditor.compaction(
-                self.name, fill,
-                trace_id=self._trace_id, span_id=self._span_id,
-                parent_span_id=self.parent_span_id,
-            )
+        self._audit(
+            "compaction",
+            agent=self.name, fill=fill,
+            trace_id=self._trace_id, span_id=self._span_id,
+            parent_span_id=self.parent_span_id,
+        )
 
     async def _handle_context_pressure(self, fill: float) -> None:
         if fill >= 0.85:
@@ -540,12 +584,12 @@ class Agent:
         tool_call_id = tool_span_id[:4]
         self._narrate(tc.function.name, reason, tool_call_id, is_parallel)
         logger.debug("tool_call name=%s args=%s", tc.function.name, args)
-        if self.auditor:
-            self.auditor.tool_call(
-                self.name, tc.function.name, args,
-                trace_id=self._trace_id, span_id=tool_span_id,
-                parent_span_id=self._span_id, call_id=tool_call_id,
-            )
+        self._audit(
+            "tool_call",
+            agent=self.name, name=tc.function.name, args=args,
+            trace_id=self._trace_id, span_id=tool_span_id,
+            parent_span_id=self._span_id, call_id=tool_call_id,
+        )
         tool_start = time.perf_counter()
         try:
             if self.tool_timeout is not None:
@@ -559,21 +603,21 @@ class Agent:
             narration_logger.debug(narrate_msg)
             if self.narration:
                 self.on_narration(narrate_msg)
-            if self.auditor:
-                self.auditor.tool_error(
-                    self.name, tc.function.name, msg,
-                    trace_id=self._trace_id, span_id=tool_span_id,
-                    parent_span_id=self._span_id, call_id=tool_call_id,
-                )
+            self._audit(
+                "tool_error",
+                agent=self.name, name=tc.function.name, error=msg,
+                trace_id=self._trace_id, span_id=tool_span_id,
+                parent_span_id=self._span_id, call_id=tool_call_id,
+            )
             return {"role": "tool", "tool_call_id": tc.id, "content": msg}
         except Exception as exc:
             logger.error("tool_error name=%s error=%s", tc.function.name, exc)
-            if self.auditor:
-                self.auditor.tool_error(
-                    self.name, tc.function.name, str(exc),
-                    trace_id=self._trace_id, span_id=tool_span_id,
-                    parent_span_id=self._span_id, call_id=tool_call_id,
-                )
+            self._audit(
+                "tool_error",
+                agent=self.name, name=tc.function.name, error=str(exc),
+                trace_id=self._trace_id, span_id=tool_span_id,
+                parent_span_id=self._span_id, call_id=tool_call_id,
+            )
             raise
         tool_elapsed = time.perf_counter() - tool_start
         content = result.result if hasattr(result, "result") else str(result)
@@ -583,12 +627,12 @@ class Agent:
         logger.debug("tool_result name=%s result=%s elapsed=%.2fs", tc.function.name, content, tool_elapsed)
         self._narrate_elapsed(tc.function.name, tool_elapsed, tool_call_id, is_parallel)
         self._narrate_result(tc.function.name, content, tool_call_id, is_parallel)
-        if self.auditor:
-            self.auditor.tool_result(
-                self.name, tc.function.name, content,
-                trace_id=self._trace_id, span_id=tool_span_id,
-                parent_span_id=self._span_id, call_id=tool_call_id,
-            )
+        self._audit(
+            "tool_result",
+            agent=self.name, name=tc.function.name, result=content,
+            trace_id=self._trace_id, span_id=tool_span_id,
+            parent_span_id=self._span_id, call_id=tool_call_id,
+        )
         self._tool_calls_log.append({"name": tc.function.name, "args": args, "result": content})
         self.on_tool_result(tc.function.name, content, tool_call_id, self._trace_id)
         tool_msg: dict = {"role": "tool", "tool_call_id": tc.id, "content": content}
@@ -672,12 +716,12 @@ class Agent:
         if _parent_span_id:
             self.parent_span_id = _parent_span_id
         logger.debug("run agent=%s prompt=%r", self.name, prompt[:80])
-        if self.auditor:
-            self.auditor.agent_start(
-                self.name, prompt,
-                trace_id=self._trace_id, span_id=self._span_id,
-                parent_span_id=self.parent_span_id,
-            )
+        self._audit(
+            "agent_start",
+            agent=self.name, prompt=prompt,
+            trace_id=self._trace_id, span_id=self._span_id,
+            parent_span_id=self.parent_span_id,
+        )
         if self.narration:
             preview = prompt[:120].replace("\n", " ")
             if len(prompt) > 120:
@@ -706,6 +750,7 @@ class Agent:
 
         self._run_start = time.perf_counter()
         try:
+            await self._connect_mcp()
             async with asyncio.timeout(self.run_timeout):
                 result = await self._run_loop()
             self._elapsed = time.perf_counter() - self._run_start
@@ -721,6 +766,7 @@ class Agent:
                 f"after {self._turn_count} turns"
             )
         finally:
+            await self._disconnect_mcp()
             if _ctx_token is not None:
                 _ctx_server._agent_name_var.reset(_ctx_token)
             if _ctx_pad_token is not None:
@@ -757,13 +803,13 @@ class Agent:
                     self._history = inject_summary(self._history, self._running_summary)
                 result = message.content or ""
                 self._narrate_summary()
-                if self.auditor:
-                    self.auditor.agent_end(
-                        self.name, result, self._turn_count, self.cost,
-                        self._prompt_tokens, self._completion_tokens,
-                        trace_id=self._trace_id, span_id=self._span_id,
-                        parent_span_id=self.parent_span_id,
-                    )
+                self._audit(
+                    "agent_end",
+                    agent=self.name, result=result, turns=self._turn_count, cost=self.cost,
+                    prompt_tokens=self._prompt_tokens, completion_tokens=self._completion_tokens,
+                    trace_id=self._trace_id, span_id=self._span_id,
+                    parent_span_id=self.parent_span_id,
+                )
                 return result
 
             tool_results = await self._execute_tools(message.tool_calls)

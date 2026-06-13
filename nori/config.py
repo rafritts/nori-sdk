@@ -39,6 +39,8 @@ class AgentDefaults:
     tool_models: dict = field(default_factory=dict)  # {tool_class: Model}
     server: ServerConfig = field(default_factory=ServerConfig)
     notify: NotifyConfig = field(default_factory=NotifyConfig)
+    control_tower: str | None = None
+    project: str = "default"
 
 
 _defaults = AgentDefaults()
@@ -48,6 +50,8 @@ def configure(**kwargs) -> None:
     tool_models = kwargs.pop("tool_models", None)
     server = kwargs.pop("server", _UNSET)
     notify = kwargs.pop("notify", _UNSET)
+    control_tower = kwargs.pop("control_tower", _UNSET)
+    project = kwargs.pop("project", _UNSET)
     for k, v in kwargs.items():
         setattr(_defaults, k, v)
     if tool_models:
@@ -56,6 +60,14 @@ def configure(**kwargs) -> None:
         _defaults.server = _parse_server(server)
     if notify is not _UNSET:
         _defaults.notify = notify if isinstance(notify, NotifyConfig) else NotifyConfig(**notify)
+    if control_tower is not _UNSET:
+        _defaults.control_tower = control_tower
+        if project is not _UNSET:
+            _defaults.project = project
+        from nori import tower_sink
+        tower_sink.configure(control_tower, _defaults.project)
+    elif project is not _UNSET:
+        _defaults.project = project
 
 
 def reset() -> None:

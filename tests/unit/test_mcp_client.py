@@ -1,6 +1,9 @@
 from types import SimpleNamespace
 
+import pytest
+
 from nori import Agent, Model
+from nori.exceptions import MCPConnectionError
 from nori.mcp.server import MCPServer
 from nori.mcp.client import MCPTool, MCPConnection, _result_to_text, _tool_to_schema
 
@@ -154,7 +157,7 @@ async def test_agent_connect_disconnect_registers_and_cleans_up(monkeypatch):
     assert closed["v"] is True
 
 
-async def test_agent_connect_failure_is_isolated(monkeypatch):
+async def test_agent_connect_failure_raises_actionable_error(monkeypatch):
     async def boom(self):
         raise RuntimeError("server unavailable")
 
@@ -165,8 +168,9 @@ async def test_agent_connect_failure_is_isolated(monkeypatch):
     monkeypatch.setattr(MCPConnection, "aclose", fake_aclose)
 
     agent = Agent(name="T", model=_model(), mcp_servers=[MCPServer(name="demo", command="true")])
-    # A failing server must not raise — it is logged and skipped.
-    await agent._connect_mcp()
+    # A failing server must fail fast with a clear, actionable error.
+    with pytest.raises(MCPConnectionError, match="demo.*server unavailable"):
+        await agent._connect_mcp()
     assert agent._mcp_connections == []
 
 

@@ -1,8 +1,14 @@
 import json
 import os
 
-from motor.motor_asyncio import AsyncIOMotorDatabase
-from motor.motor_asyncio import AsyncIOMotorClient
+try:
+    from motor.motor_asyncio import AsyncIOMotorDatabase
+    from motor.motor_asyncio import AsyncIOMotorClient
+except ImportError:
+    raise ImportError(
+        "motor is required for the Mongo tool. "
+        "Install it with: uv add motor (or `nori-sdk[mongo]`)"
+    )
 
 from nori.tool import tool
 from nori.tools.base import ToolResult
@@ -43,7 +49,10 @@ async def Mongo(
     try:
         db = _db(dsn)
     except KeyError:
-        return ToolResult(result="[error] MONGO_DSN not set")
+        return ToolResult(result=(
+            "[error] MONGO_DSN not set. Set it via: export MONGO_DSN=mongodb://..., "
+            "add it to .env, or pass dsn='...' directly to the tool call."
+        ))
     except Exception as e:
         return ToolResult(result=f"[error] connection failed: {e}")
 

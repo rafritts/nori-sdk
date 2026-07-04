@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 
 from dotenv import load_dotenv
 
@@ -53,7 +53,13 @@ def configure(**kwargs) -> None:
     notify = kwargs.pop("notify", _UNSET)
     control_tower = kwargs.pop("control_tower", _UNSET)
     project = kwargs.pop("project", _UNSET)
+    valid_fields = {f.name for f in fields(AgentDefaults)}
     for k, v in kwargs.items():
+        if k not in valid_fields:
+            raise ValueError(
+                f"nori.configure() got an unexpected keyword argument {k!r}. "
+                f"Valid options: {', '.join(sorted(valid_fields))}."
+            )
         setattr(_defaults, k, v)
     if tool_models:
         _defaults.tool_models.update(tool_models)

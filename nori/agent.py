@@ -12,7 +12,7 @@ import nori.config as config
 from nori import tower_sink as _tower_sink
 from nori.context import ContextFile, inject_summary, update_running_summary
 from nori.enums import ContextRole, OutputFormat, Propagation, SelfModify
-from nori.exceptions import AntiSpinTerminated, MaxTurnsExceeded, RunTimeout
+from nori.exceptions import AntiSpinTerminated, MaxTurnsExceeded, MCPConnectionError, RunTimeout
 from nori.mcp.server import MCPServer
 from nori.model import Model
 from nori.permissions import Permissions, PermissionGuard
@@ -269,9 +269,17 @@ class Agent:
             try:
                 tools = await conn.connect()
             except Exception as exc:
-                logger.error("mcp_connect_failed server=%s error=%s", server.name, exc)
                 await conn.aclose()
-                continue
+                if server.command:
+                    hint = (
+                        f"Check that '{server.command}' is installed and on PATH, "
+                        f"and that any environment variables it needs (e.g. API keys) are set."
+                    )
+                else:
+                    hint = f"Check that the url '{server.url}' is correct and reachable."
+                raise MCPConnectionError(
+                    f"Failed to connect to MCP server '{server.name}': {exc}\n{hint}"
+                ) from exc
             self._mcp_connections.append(conn)
             for t in tools:
                 name = t.schema["function"]["name"]

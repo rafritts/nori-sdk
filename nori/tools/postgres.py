@@ -1,7 +1,13 @@
 import json
 import os
 
-import asyncpg
+try:
+    import asyncpg
+except ImportError:
+    raise ImportError(
+        "asyncpg is required for the Postgres tool. "
+        "Install it with: uv add asyncpg (or `nori-sdk[postgres]`)"
+    )
 
 from nori.tool import tool
 from nori.tools.base import ToolResult
@@ -38,7 +44,10 @@ async def Postgres(
     try:
         pool = await _pool(dsn)
     except KeyError:
-        return ToolResult(result="[error] POSTGRES_DSN not set")
+        return ToolResult(result=(
+            "[error] POSTGRES_DSN not set. Set it via: export POSTGRES_DSN=postgresql://..., "
+            "add it to .env, or pass dsn='...' directly to the tool call."
+        ))
     except Exception as e:
         return ToolResult(result=f"[error] connection failed: {e}")
 

@@ -16,3 +16,7 @@ class ToolTimeout(Exception):
 
 class RunTimeout(Exception):
     pass
+
+
+class MCPConnectionError(Exception):
+    pass

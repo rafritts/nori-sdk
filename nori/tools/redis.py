@@ -1,6 +1,12 @@
 import os
 
-import redis.asyncio as aioredis
+try:
+    import redis.asyncio as aioredis
+except ImportError:
+    raise ImportError(
+        "redis is required for the Redis tool. "
+        "Install it with: uv add redis (or `nori-sdk[redis]`)"
+    )
 
 from nori.tool import tool
 from nori.tools.base import ToolResult
@@ -36,7 +42,10 @@ async def Redis(
     try:
         client = _client(dsn)
     except KeyError:
-        return ToolResult(result="[error] REDIS_DSN not set")
+        return ToolResult(result=(
+            "[error] REDIS_DSN not set. Set it via: export REDIS_DSN=redis://..., "
+            "add it to .env, or pass dsn='...' directly to the tool call."
+        ))
 
     op = operation.lower()
 

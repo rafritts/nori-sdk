@@ -33,7 +33,13 @@ def JsonRead(path: str, path_expr: str = "", summarize: bool = False) -> ToolRes
         return ToolResult(result=f"Invalid JSON in {path}: {e}")
 
     if path_expr:
-        from jsonpath_ng import parse as jp_parse
+        try:
+            from jsonpath_ng import parse as jp_parse
+        except ImportError:
+            return ToolResult(result=(
+                "[error] path_expr requires jsonpath-ng. "
+                "Install it with: uv add jsonpath-ng (or `nori-sdk[data]`)"
+            ))
         try:
             matches = [m.value for m in jp_parse(path_expr).find(data)]
         except Exception as e:

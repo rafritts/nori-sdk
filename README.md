@@ -54,6 +54,8 @@ from nori.tools.file_edit import FileEdit
 from nori.tools.git import Git
 ```
 
+*Run it:* [file CRUD](demos/file_crud_demo.py) · [git workflow](demos/git_demo.py) · [JSON/CSV](demos/json_csv_demo.py) · [browser scraping](demos/browser1_demo.py)
+
 Your own tools are one decorator:
 
 ```python
@@ -67,7 +69,7 @@ def get_weather(city: str) -> str:
 agent = Agent(name="Concierge", system_prompt="...", tools=[get_weather, WebSearch])
 ```
 
-Name, docstring, and type hints become the schema. Done.
+Name, docstring, and type hints become the schema. Done. *Run it:* [tool_decorator_demo.py](demos/tool_decorator_demo.py)
 
 ## Agents are tools
 
@@ -106,6 +108,8 @@ results = await nori.map(triage, tickets, concurrency=5)
 results = await nori.pipeline([classifier, summarizer], documents)
 ```
 
+*Run it:* [agent_as_tool_demo.py](demos/agent_as_tool_demo.py) — researcher and writer under an orchestrator · [parallel_demo.py](demos/parallel_demo.py) — three specialist code reviewers dispatched in a single turn, traces propagating across all four agents
+
 ## Agents that don't wander off
 
 Long-running agents drift, loop, and thrash. Nori watches for it:
@@ -127,6 +131,8 @@ agent = Agent(
 
 Every 5 turns, an isolated evaluator reads the recent history and answers one question: *is this agent making progress, or spinning?* Spinning raises `AntiSpinTerminated` instead of burning your budget. Context is managed the same way — a warning lands in the conversation at 70% full, autocompaction into a running summary fires at 85%. You configure nothing.
 
+*Run it:* [anti_spin_demo.py](demos/anti_spin_demo.py) · [permissions_demo.py](demos/permissions_demo.py) · [context_demo.py](demos/context_demo.py)
+
 ## Watch it work
 
 Every tool call carries a required `reason` — so narration is free, and it goes wherever your app needs it:
@@ -144,6 +150,8 @@ Ops: 3 turns | 2,410 tokens | $0.0061 | 4.2s
 
 Cost, tokens, turns, and the full tool-call log are properties on the agent. A structured audit trail with B3 trace/span IDs is emitted for every run — pipe it to whatever observability stack you already have.
 
+*Run it:* [narration_demo.py](demos/narration_demo.py) · [observability_demo.py](demos/observability_demo.py) — Python logging vs. the audit stream, side by side
+
 ## Ship it
 
 Your agent is an OpenAI-compatible API in three lines. Point Open WebUI, or any OpenAI client, at it:
@@ -158,6 +166,8 @@ serve(make_agent, port=7732)   # POST http://localhost:7732/v1/chat/completions
 ```
 
 Need a human in the loop? Give the agent the `HumanInput` tool and it will pause mid-run, post a question to the embedded server, and wait for your app to answer over HTTP.
+
+*Run it:* [chatbot_demo.py](demos/chatbot_demo.py) — point Open WebUI at your agent · [hitl_demo.py](demos/hitl_demo.py) — approval flow with a simulated human
 
 ## MCP
 
@@ -174,18 +184,27 @@ agent = Agent(
 )
 ```
 
+## Demos, not promises
+
+Every feature above has a runnable end-to-end demo in [`demos/`](demos/) — not snippets, full working programs. Two worth starting with:
+
+- **[retail_demo.py](demos/retail_demo.py)** — a complete RMA pipeline: two agents collaborating across a Redis message queue backed by Postgres, processing product returns end to end.
+- **[hard_demo.py](demos/hard_demo.py)** — broken repo recovery: an agent drops into a Python project with three planted bugs and works it back to green.
+
 ## And the rest
 
-| Concern | What you get |
-|---|---|
-| Context | Autocompaction, running summaries, scratchpads, context files, tool-output summarization |
-| Safety | Anti-spin checkpoints, permissions, tool/run timeouts, `max_turns` |
-| Observability | Narration callbacks, audit log with B3 tracing, cost & token accounting |
-| Orchestration | Agents as tools, `nori.map`, `nori.pipeline`, parallel tool dispatch |
-| Vision | Pass images to `agent.run()`, with automatic context stripping after read |
-| Self-modification | Opt-in tiers: rewrite its own prompt → manage its own tools → change its own model |
-| Deferred tools | Register many tools, expose stubs, let the model load them on demand |
-| CLI | `nori` command for quick-fire agents from the terminal |
+| Concern | What you get | See it run |
+|---|---|---|
+| Context | Autocompaction, running summaries, scratchpads, context files, tool-output summarization | [context_demo.py](demos/context_demo.py) |
+| Safety | Anti-spin checkpoints, permissions, tool/run timeouts, `max_turns` | [anti_spin_demo.py](demos/anti_spin_demo.py) |
+| Observability | Narration callbacks, audit log with B3 tracing, cost & token accounting | [observability_demo.py](demos/observability_demo.py) |
+| Orchestration | Agents as tools, `nori.map`, `nori.pipeline`, parallel tool dispatch | [parallel_demo.py](demos/parallel_demo.py) |
+| Vision | Pass images to `agent.run()`, with automatic context stripping after read | [vision_demo.py](demos/vision_demo.py) |
+| Self-modification | Opt-in tiers: rewrite its own prompt → manage its own tools → change its own model | [self_modify_demo.py](demos/self_modify_demo.py) |
+| Notifications | `Notify` tool — the agent signals success/failure to your app | [notify_demo.py](demos/notify_demo.py) |
+| Databases | Postgres, Redis, Mongo tools with demos for each | [postgres](demos/postgres_demo/) · [redis](demos/redis_demo/) · [mongo](demos/mongo_demo/) |
+| Deferred tools | Register many tools, expose stubs, let the model load them on demand | — |
+| CLI | `nori` command for quick-fire agents from the terminal | — |
 
 **[Get started →](docs/getting-started.md)** · [Agent API](docs/agent.md) · [Tools](docs/tools.md) · [Patterns](docs/patterns.md) · [Anti-spin](docs/anti-spin.md) · [MCP](docs/mcp.md) · [Observability](docs/observability.md) · [Demos](docs/demos.md)
 

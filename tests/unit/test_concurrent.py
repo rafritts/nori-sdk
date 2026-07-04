@@ -1,9 +1,10 @@
 import asyncio
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 import nori
+from nori import Agent, Model
 from nori.concurrent import map, pipeline
 
 
@@ -11,6 +12,7 @@ def make_agent(responses):
     """Return a mock agent whose run() yields responses in order."""
     agent = MagicMock()
     agent.run = AsyncMock(side_effect=responses)
+    agent._clone = MagicMock(return_value=agent)
     return agent
 
 
@@ -57,6 +59,7 @@ async def test_map_concurrency_limit():
 
     agent = MagicMock()
     agent.run = slow_run
+    agent._clone = MagicMock(return_value=agent)
 
     await map(agent, ["a", "b", "c", "d", "e"], concurrency=2)
     assert peak <= 2
@@ -66,6 +69,27 @@ async def test_map_exposed_on_nori_namespace():
     agent = make_agent(["hi"])
     results = await nori.map(agent, ["hello"])
     assert results == ["hi"]
+
+
+async def test_map_runs_are_isolated():
+    """Parallel runs get fresh clones — no shared history, template untouched."""
+    def echo(**kwargs):
+        msg = MagicMock()
+        msg.content = f"echo:{kwargs['messages'][-1]['content']}"
+        msg.tool_calls = None
+        return MagicMock(choices=[MagicMock(message=msg)], usage=None)
+
+    with patch("nori.agent.AsyncOpenAI") as MockOpenAI:
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = AsyncMock(side_effect=echo)
+        MockOpenAI.return_value = mock_client
+
+        agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"))
+        results = await map(agent, ["a", "b", "c"])
+
+    assert results == ["echo:a", "echo:b", "echo:c"]
+    assert agent._history == []
+    assert agent.turn_count == 0
 
 
 # ---------------------------------------------------------------------------

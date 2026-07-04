@@ -105,6 +105,7 @@ class Agent:
         self._run_start: float | None = None
         self._elapsed: float | None = None
         self._prompt_tokens: int = 0
+        self._last_prompt_tokens: int = 0
         self._completion_tokens: int = 0
         self._tool_calls_log: list[dict] = []
         self.auditor = None
@@ -336,7 +337,8 @@ class Agent:
     def summarize_output(self) -> bool:
         return True
 
-    async def __call__(self, task: str, reason: str = "") -> str:
+    def _clone(self) -> "Agent":
+        """Fresh Agent with this agent's configuration and none of its run state."""
         _perms = None
         if self._permissions._allow or self._permissions._deny:
             _perms = Permissions(
@@ -344,11 +346,12 @@ class Agent:
                 deny=self._permissions._deny,
             )
         deferred = list(self._deferred_tools.values()) if self._deferred_tools else None
-        sub = Agent(
+        return Agent(
             name=self.name,
             model=self._model,
             system_prompt=self.system_prompt,
             tools=list(self._tools.values()),
+            mcp_servers=list(self._mcp_servers),
             deferred_tools=deferred,
             show_tool_stubs=self._show_tool_stubs,
             max_turns=self._max_turns,
@@ -364,6 +367,9 @@ class Agent:
             scratchpad=self._scratchpad,
             output_format=self.output_format,
         )
+
+    async def __call__(self, task: str, reason: str = "") -> str:
+        sub = self._clone()
         return await sub.run(task, _trace_id=self._trace_id, _parent_span_id=self._span_id)
 
     def _audit(self, method: str, **kwargs) -> None:
@@ -372,9 +378,12 @@ class Agent:
         _tower_sink.emit(method, **kwargs)
 
     def _context_fill(self) -> float:
+        # Current fill is the last completion's prompt size, not the cumulative
+        # count — each turn resends the whole history, so the running total
+        # overstates fill more every turn.
         if not self.max_context_chars:
             return 0.0
-        return self._prompt_tokens / self.max_context_chars
+        return self._last_prompt_tokens / self.max_context_chars
 
     async def _compact(self, fill: float = 0.0) -> None:
         self._running_summary = await update_running_summary(
@@ -655,6 +664,7 @@ class Agent:
             ct = response.usage.completion_tokens
             if isinstance(pt, int):
                 self._prompt_tokens += pt
+                self._last_prompt_tokens = pt
             if isinstance(ct, int):
                 self._completion_tokens += ct
         return response.choices[0].message
@@ -694,6 +704,7 @@ class Agent:
         self._history = []
         self._turn_count = 0
         self._prompt_tokens = 0
+        self._last_prompt_tokens = 0
         self._completion_tokens = 0
         self._tool_calls_log = []
         self._running_summary = ""

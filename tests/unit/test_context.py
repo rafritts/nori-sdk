@@ -85,7 +85,7 @@ async def test_warning_injected_at_70_percent():
 
         agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"))
         agent.max_context_chars = 100
-        agent._prompt_tokens = 75  # 75% of 100 token budget
+        agent._last_prompt_tokens = 75  # 75% of 100 token budget
         await agent.run("hi")
         warning_msgs = [m for m in agent._history if m.get("_marker") == "__compact_warning__"]
         assert len(warning_msgs) == 1
@@ -101,7 +101,7 @@ async def test_warning_not_injected_twice():
 
         agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"))
         agent.max_context_chars = 100
-        agent._prompt_tokens = 75  # 75% of 100 token budget
+        agent._last_prompt_tokens = 75  # 75% of 100 token budget
         await agent.run("hi")
         await agent.run("hi again")
         warning_msgs = [m for m in agent._history if m.get("_marker") == "__compact_warning__"]
@@ -120,11 +120,20 @@ async def test_compaction_fires_at_85_percent():
 
         agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"))
         agent.max_context_chars = 100
-        agent._prompt_tokens = 90  # 90% of 100 token budget
+        agent._last_prompt_tokens = 90  # 90% of 100 token budget
         await agent.run("hi")
 
         summary_msgs = [m for m in agent._history if m.get("_marker") == "__running_summary__"]
         assert len(summary_msgs) == 1
+
+
+async def test_fill_uses_last_completion_not_cumulative():
+    with patch("nori.agent.AsyncOpenAI"):
+        agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"))
+        agent.max_context_chars = 100
+        agent._prompt_tokens = 500       # cumulative across many turns
+        agent._last_prompt_tokens = 10   # actual size of the current context
+        assert agent._context_fill() == 0.10
 
 
 async def test_summary_updates_each_run():

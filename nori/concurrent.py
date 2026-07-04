@@ -4,18 +4,22 @@ import asyncio
 async def map(agent, items: list[str], *, concurrency: int | None = None) -> list[str]:
     """Run agent on each item in parallel, collecting results in input order.
 
+    Each item runs on a fresh clone of the agent — parallel runs never share
+    history, traces, or token counts. The agent passed in is left untouched.
+
     Args:
-        agent: A Nori Agent instance.
+        agent: A Nori Agent instance, used as the template for each run.
         items: Prompts to run the agent against.
         concurrency: Max simultaneous runs. Unbounded if None.
     """
     sem = asyncio.Semaphore(concurrency) if concurrency is not None else None
 
     async def run_one(item: str) -> str:
+        sub = agent._clone()
         if sem is not None:
             async with sem:
-                return await agent.run(item)
-        return await agent.run(item)
+                return await sub.run(item)
+        return await sub.run(item)
 
     async with asyncio.TaskGroup() as tg:
         tasks = [tg.create_task(run_one(item)) for item in items]

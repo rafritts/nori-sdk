@@ -26,8 +26,9 @@ async def HumanInput(question: str, options: list = None, timeout_seconds: int =
             agent_name = _server._agent_name_var.get()
             _server.register_pending(request_id, future, agent_name, question, options or [])
             logger.info(
-                "[nori] waiting for human input — POST http://%s:%d/hitl/%s/respond",
-                cfg.host, cfg.port, request_id,
+                "[nori] waiting for human input — POST http://%s:%d/hitl/%s/respond "
+                "(header 'X-Nori-Token: %s')",
+                cfg.host, cfg.port, request_id, cfg.token,
             )
             try:
                 return await future

@@ -29,19 +29,25 @@ TASK = (
 )
 
 
-async def auto_responder(base_url: str, response: str, stop: asyncio.Event) -> None:
+async def auto_responder(base_url: str, cfg, response: str, stop: asyncio.Event) -> None:
     """Poll for pending HITL requests and respond automatically."""
     async with httpx.AsyncClient() as client:
         while not stop.is_set():
             await asyncio.sleep(0.3)
+            # The token is generated when the server first starts (on the agent's
+            # first HumanInput call), so read it live off the shared config.
+            if not cfg.token:
+                continue
+            headers = {"X-Nori-Token": cfg.token}
             try:
-                resp = await client.get(f"{base_url}/hitl/pending", timeout=2)
+                resp = await client.get(f"{base_url}/hitl/pending", headers=headers, timeout=2)
                 for req in resp.json():
                     print(f"\n[auto-responder] question: {req['question']!r}")
                     print(f"[auto-responder] responding: {response!r}")
                     await client.post(
                         f"{base_url}/hitl/{req['id']}/respond",
                         json={"response": response},
+                        headers=headers,
                         timeout=2,
                     )
             except Exception:
@@ -63,7 +69,7 @@ async def main() -> None:
 
     stop = asyncio.Event()
     responder_task = asyncio.create_task(
-        auto_responder(base_url, "Yes, approved — please proceed.", stop)
+        auto_responder(base_url, cfg, "Yes, approved — please proceed.", stop)
     )
 
     print(DIVIDER)

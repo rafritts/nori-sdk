@@ -2,6 +2,7 @@
 
 from nori.tool import tool
 from nori.tools.base import ToolResult
+from nori.tools._ssrf import check_url
 from nori.tools.browser.parser import html_to_text
 
 _HYDRATION_TIMEOUT = 8_000
@@ -10,6 +11,10 @@ _HYDRATION_TIMEOUT = 8_000
 @tool
 async def BrowserClient(url: str) -> ToolResult:
     """Fetch a JS-rendered page, wait for hydration, and return clean readable text. No interaction — use BrowserAgent for multi-step tasks."""
+    blocked = await check_url(url)
+    if blocked:
+        return ToolResult(result=blocked)
+
     try:
         from playwright.async_api import async_playwright
     except ImportError:

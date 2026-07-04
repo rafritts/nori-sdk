@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import secrets
 from contextvars import ContextVar
 from datetime import datetime, timezone
 
@@ -27,13 +28,18 @@ async def ensure_started(cfg) -> None:
             "Install with: uv add 'nori[server]'"
         )
 
-    app = _make_app()
+    if not cfg.token:
+        cfg.token = secrets.token_urlsafe(32)
+    app = _make_app(cfg.token)
     uv_cfg = uvicorn.Config(app, host=cfg.host, port=cfg.port, log_level="warning")
     _uvicorn_server = uvicorn.Server(uv_cfg)
     _server_task = asyncio.create_task(_uvicorn_server.serve())
     # Give uvicorn a moment to bind before accepting requests.
     await asyncio.sleep(0.15)
-    logger.info("nori server started on http://%s:%d", cfg.host, cfg.port)
+    logger.info(
+        "nori server started on http://%s:%d — HITL endpoints require header "
+        "'X-Nori-Token: %s'", cfg.host, cfg.port, cfg.token,
+    )
 
 
 async def shutdown() -> None:
@@ -66,8 +72,8 @@ def unregister_pending(request_id: str) -> None:
     _pending.pop(request_id, None)
 
 
-def _make_app():
-    from fastapi import FastAPI, HTTPException
+def _make_app(token: str | None = None):
+    from fastapi import FastAPI, Header, HTTPException
     from pydantic import BaseModel
 
     app = FastAPI(title="nori", docs_url=None, redoc_url=None)
@@ -75,12 +81,17 @@ def _make_app():
     class RespondBody(BaseModel):
         response: str
 
+    def _auth(supplied: str | None) -> None:
+        if token and not (supplied and secrets.compare_digest(supplied, token)):
+            raise HTTPException(status_code=401, detail="Missing or invalid X-Nori-Token")
+
     @app.get("/health")
     async def health():
         return {"status": "ok"}
 
     @app.get("/hitl/pending")
-    async def hitl_pending():
+    async def hitl_pending(x_nori_token: str | None = Header(default=None)):
+        _auth(x_nori_token)
         return [
             {
                 "id": rid,
@@ -93,7 +104,10 @@ def _make_app():
         ]
 
     @app.post("/hitl/{request_id}/respond")
-    async def hitl_respond(request_id: str, body: RespondBody):
+    async def hitl_respond(
+        request_id: str, body: RespondBody, x_nori_token: str | None = Header(default=None)
+    ):
+        _auth(x_nori_token)
         info = _pending.get(request_id)
         if info is None or info["future"].done():
             raise HTTPException(status_code=404, detail="Unknown or already resolved request")

@@ -68,6 +68,35 @@ async def test_on_narration_fires_before_tool_execution():
     assert order.index("narration") < order.index("tool")
 
 
+async def test_response_content_delivered_before_tool_executes():
+    order = []
+
+    @tool
+    def ordered_tool(x: str) -> str:
+        """Ordered."""
+        order.append("tool")
+        return "ok"
+
+    agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"), tools=[ordered_tool])
+    agent.narration = True
+    agent.on_narration = lambda s: order.append(("response", s))
+    agent._complete = AsyncMock(side_effect=[
+        make_tool_call_message(
+            "ordered_tool", {"x": "a", "reason": "r"}, content="Here is my answer, now I'll act."
+        ),
+        make_text_message(),
+    ])
+    await agent.run("go")
+
+    # The model's text response must be delivered before the tool runs.
+    response_idx = next(
+        i for i, e in enumerate(order)
+        if isinstance(e, tuple) and "Here is my answer" in e[1]
+    )
+    tool_idx = order.index("tool")
+    assert response_idx < tool_idx
+
+
 async def test_default_format_includes_tool_name_and_reason():
     fired = []
     agent = make_agent()

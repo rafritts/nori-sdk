@@ -59,6 +59,42 @@ def test_check_path_relative_traversal_is_caught(tmp_path):
     assert "Sandbox violation" in error
 
 
+def test_check_path_sibling_prefix_is_caught(tmp_path):
+    """A sibling dir sharing a name prefix must not count as inside the sandbox."""
+    allowed = tmp_path / "box"
+    allowed.mkdir()
+    sibling = tmp_path / "box_evil"
+    sibling.mkdir()
+    error = check_path(str(sibling / "secret.txt"), str(allowed))
+    assert error is not None
+    assert "Sandbox violation" in error
+
+
+def test_check_path_symlink_escape_is_caught(tmp_path):
+    """A symlink inside the sandbox pointing outside must not be followed out."""
+    allowed = tmp_path / "box"
+    allowed.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text("top secret")
+    (allowed / "link").symlink_to(outside)
+    error = check_path("link/secret.txt", str(allowed))
+    assert error is not None
+    assert "Sandbox violation" in error
+
+
+def test_check_command_sibling_prefix_is_caught():
+    error = check_command("cat /allowed_evil/secret.txt", "/allowed")
+    assert error is not None
+    assert "Sandbox violation" in error
+
+
+def test_check_command_relative_traversal_is_caught():
+    error = check_command("cat ../../etc/passwd", "/allowed")
+    assert error is not None
+    assert "Sandbox violation" in error
+
+
 # ── sandbox_dir context var enforced through tools ────────────────────────────
 
 async def test_bash_sandbox_blocks_violation(tmp_path):

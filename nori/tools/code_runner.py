@@ -8,7 +8,13 @@ from nori.tools._sandbox import sandbox_dir, check_command
 
 @tool
 def CodeRunner(code: str) -> ToolResult:
-    """Execute a Python 3 snippet and return its stdout."""
+    """Execute a Python 3 snippet and return its stdout.
+
+    Runs in a subprocess whose cwd is the sandbox dir, but the code is NOT
+    otherwise confined — it has the full privileges of the host process. The
+    path scan is a guardrail against accidental stray paths, not a security
+    boundary. See docs/security.md.
+    """
     allowed = sandbox_dir.get()
     if allowed:
         error = check_command(code, allowed)

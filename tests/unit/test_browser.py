@@ -372,7 +372,9 @@ async def test_full_page_screenshot_resizes_wide_image():
 
 @pytest.mark.asyncio
 async def test_browser_client_playwright_not_installed():
+    from unittest.mock import AsyncMock
     from nori.tools.browser.client import BrowserClient
-    with patch("builtins.__import__", side_effect=lambda name, *a, **k: (_ for _ in ()).throw(ImportError("no playwright")) if name == "playwright.async_api" else __import__(name, *a, **k)):
+    with patch("nori.tools.browser.client.check_url", new=AsyncMock(return_value=None)), \
+         patch("builtins.__import__", side_effect=lambda name, *a, **k: (_ for _ in ()).throw(ImportError("no playwright")) if name == "playwright.async_api" else __import__(name, *a, **k)):
         result = await BrowserClient(url="http://example.com", reason="r")
     assert "playwright" in result.result.lower()

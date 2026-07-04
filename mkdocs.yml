@@ -43,6 +43,7 @@ nav:
   - MCP: mcp.md
   - Patterns: patterns.md
   - Permissions: permissions.md
+  - Security: security.md
   - Anti-Spin: anti-spin.md
   - Observability: observability.md
   - CLI: cli.md

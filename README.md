@@ -206,6 +206,6 @@ Every feature above has a runnable end-to-end demo in [`demos/`](demos/) — not
 | Deferred tools | Register many tools, expose stubs, let the model load them on demand | — |
 | CLI | `nori` command for quick-fire agents from the terminal | — |
 
-**[Get started →](docs/getting-started.md)** · [Agent API](docs/agent.md) · [Tools](docs/tools.md) · [Patterns](docs/patterns.md) · [Anti-spin](docs/anti-spin.md) · [MCP](docs/mcp.md) · [Observability](docs/observability.md) · [Demos](docs/demos.md)
+**[Get started →](docs/getting-started.md)** · [Agent API](docs/agent.md) · [Tools](docs/tools.md) · [Patterns](docs/patterns.md) · [Anti-spin](docs/anti-spin.md) · [MCP](docs/mcp.md) · [Security](docs/security.md) · [Observability](docs/observability.md) · [Demos](docs/demos.md)
 
 MIT licensed. Python 3.13+.

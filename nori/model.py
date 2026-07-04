@@ -32,6 +32,17 @@ class Model:
             else:
                 self.base_url = self.base_url or self.provider.base_url
                 self.api_key = self.api_key or self.provider.api_key
+                env_var = self.provider.value[1]
+                if self.api_key is None and env_var is not None:
+                    raise ValueError(
+                        f"Model is set to use {self.provider.name}, but no API key was found. "
+                        f"I checked the {env_var} environment variable (system env var, .env file, "
+                        f"and os.environ) and it isn't set.\n\n"
+                        f"To fix this, do one of:\n"
+                        f"  1. Export it in your shell: export {env_var}=your-key-here\n"
+                        f"  2. Add it to a .env file in your project root: {env_var}=your-key-here\n"
+                        f"  3. Pass it directly: Model(id={self.id!r}, provider=Provider.{self.provider.name}, api_key='your-key-here')"
+                    )
 
         if self.http_client is not None and self.base_url is None:
             raise ValueError("Model with http_client requires base_url.")

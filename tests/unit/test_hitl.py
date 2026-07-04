@@ -167,26 +167,59 @@ async def test_live_server_hitl_flow(autouse_reset, unused_tcp_port):
     cfg = ServerConfig(enabled=True, host="127.0.0.1", port=unused_tcp_port)
     await srv.ensure_started(cfg)
     base = f"http://127.0.0.1:{unused_tcp_port}"
+    headers = {"X-Nori-Token": cfg.token}
 
     loop = asyncio.get_running_loop()
     future = loop.create_future()
     srv.register_pending("test01", future, "DemoAgent", "Delete files?", ["yes", "no"])
 
     async with httpx.AsyncClient() as client:
-        pending = (await client.get(f"{base}/hitl/pending")).json()
+        pending = (await client.get(f"{base}/hitl/pending", headers=headers)).json()
         assert len(pending) == 1
         assert pending[0]["id"] == "test01"
         assert pending[0]["question"] == "Delete files?"
 
-        resp = await client.post(f"{base}/hitl/test01/respond", json={"response": "yes"})
+        resp = await client.post(
+            f"{base}/hitl/test01/respond", json={"response": "yes"}, headers=headers
+        )
         assert resp.status_code == 200
 
     assert await future == "yes"
 
     resp_404 = None
     async with httpx.AsyncClient() as client:
-        resp_404 = await client.post(f"{base}/hitl/test01/respond", json={"response": "yes again"})
+        resp_404 = await client.post(
+            f"{base}/hitl/test01/respond", json={"response": "yes again"}, headers=headers
+        )
     assert resp_404.status_code == 404
+
+    srv._server_task.cancel()
+    srv._server_task = None
+
+
+@pytest.mark.asyncio
+async def test_live_server_rejects_missing_and_bad_token(autouse_reset, unused_tcp_port):
+    """HITL endpoints require a valid X-Nori-Token; /health stays open."""
+    import httpx
+    from nori import server as srv
+    srv._server_task = None
+    srv._pending.clear()
+
+    cfg = ServerConfig(enabled=True, host="127.0.0.1", port=unused_tcp_port)
+    await srv.ensure_started(cfg)
+    base = f"http://127.0.0.1:{unused_tcp_port}"
+
+    loop = asyncio.get_running_loop()
+    srv.register_pending("t1", loop.create_future(), "A", "Q?", [])
+
+    async with httpx.AsyncClient() as client:
+        assert (await client.get(f"{base}/health")).status_code == 200
+        assert (await client.get(f"{base}/hitl/pending")).status_code == 401
+        assert (await client.get(
+            f"{base}/hitl/pending", headers={"X-Nori-Token": "wrong"})).status_code == 401
+        # Without a valid token, an attacker cannot inject the human's answer.
+        resp = await client.post(f"{base}/hitl/t1/respond", json={"response": "yes"})
+        assert resp.status_code == 401
 
     srv._server_task.cancel()
     srv._server_task = None

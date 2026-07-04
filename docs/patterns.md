@@ -69,7 +69,7 @@ agent = Agent(
 result = await agent.run("Purge all log files older than 30 days from /var/log/app.")
 ```
 
-The agent hits `HumanInput`, posts a question to `GET /hitl/pending`, and waits. Your application responds via `POST /hitl/{id}/respond` with the human's answer.
+The agent hits `HumanInput`, posts a question to `GET /hitl/pending`, and waits. Your application responds via `POST /hitl/{id}/respond` with the human's answer. Both endpoints require the header `X-Nori-Token` (a token is generated on server start and logged; read it from `nori.config.get_defaults().server.token`). See [Security](security.md#the-embedded-hitl-server).
 
 See [`hitl_demo.py`](https://github.com/rafritts/nori-sdk/blob/master/demos/hitl_demo.py) for a complete working example including an auto-responder that simulates the human side.
 

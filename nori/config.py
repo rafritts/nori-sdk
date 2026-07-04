@@ -12,6 +12,7 @@ class ServerConfig:
     enabled: bool = False
     host: str = "127.0.0.1"
     port: int = 7731
+    token: str | None = None  # auth for HITL endpoints; auto-generated if unset
 
 
 def _parse_server(value) -> ServerConfig:

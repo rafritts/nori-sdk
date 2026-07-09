@@ -88,6 +88,8 @@ def make_app(
         # Client-side image framing (kairu UI slider). Not a model knob —
         # harnesses force it into image tool args. One of: landscape|square|portrait.
         image_aspect: str | None = None
+        # Per-chat personality pack id (kairu: girlfriend|hotwife|bi).
+        personality: str | None = None
 
     @app.get("/v1/models")
     async def list_models():
@@ -105,6 +107,12 @@ def make_app(
         # Free-form request knobs for harness filters (e.g. kairu image aspect).
         if req.image_aspect is not None:
             agent.image_aspect = req.image_aspect
+        if req.personality is not None:
+            agent.personality = req.personality
+        # Optional harness hook (rebuild system prompt, etc.).
+        apply_knobs = getattr(agent, "apply_request_knobs", None)
+        if callable(apply_knobs):
+            apply_knobs(req)
 
         last_user_idx = max(
             (i for i, m in enumerate(req.messages) if m.role == "user"),

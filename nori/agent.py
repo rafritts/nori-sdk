@@ -86,6 +86,10 @@ class Agent:
         self.narration: bool = False
         self.narrator_prefix: str = ""
         self.on_narration = self._default_narrator
+        # Mid-loop assistant text (content on a tool-call turn). Chat/UI harnesses
+        # surface this as user-visible message content; the default falls back to
+        # narration so CLI demos still print it.
+        self.on_assistant_content = self._default_assistant_content
         self.on_tool_result = self._default_tool_result_handler
         self.summarize_tool_output = summarize_tool_output
         self.running_context_summary = running_context_summary
@@ -443,6 +447,14 @@ class Agent:
 
     def _default_narrator(self, text: str) -> None:
         print(text)
+
+    def _default_assistant_content(self, text: str) -> None:
+        """Default: route mid-loop prose through narration (CLI-friendly)."""
+        if not text or not self.narration:
+            return
+        msg = f"{self.narrator_prefix}{text}"
+        narration_logger.debug(msg)
+        self.on_narration(msg)
 
     def _default_tool_result_handler(self, name: str, result: str, call_id: str | None, trace_id: str | None) -> None:
         pass
@@ -808,8 +820,11 @@ class Agent:
 
             await self._handle_context_pressure(self._context_fill())
 
-            if message.content and message.tool_calls and self.narration:
-                self.on_narration(f"{self.narrator_prefix}{message.content}")
+            # Text alongside tool calls is user-visible message content in normal
+            # tool-calling UIs — not a "thinking" side channel. Deliver it before
+            # tools run so harnesses can stream prose while generation is in flight.
+            if message.content and message.tool_calls:
+                self.on_assistant_content(message.content)
 
             if self._checkpoint and self._turn_count % self._checkpoint.every == 0:
                 await self._run_checkpoint()

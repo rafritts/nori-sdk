@@ -99,6 +99,13 @@ def make_app(
                     queue.put_nowait(("narration", msg))
                 agent.on_narration = _on_narration
 
+            # Mid-loop assistant prose → visible message content (not <think>).
+            def _on_assistant_content(text: str):
+                if text:
+                    print(text, flush=True)
+                    queue.put_nowait(("assistant", text))
+            agent.on_assistant_content = _on_assistant_content
+
             async def _run():
                 try:
                     result = await agent.run(prompt)
@@ -106,7 +113,7 @@ def make_app(
                         result = response_filter(result, agent.tool_calls)
                     tc = agent.token_counts
                     logger.debug("chat cid=%s turns=%d tokens=%d", cid, agent.turn_count, tc["prompt"] + tc["completion"])
-                    queue.put_nowait(("done", result))
+                    queue.put_nowait(("done", result or ""))
                 except Exception as e:
                     queue.put_nowait(("error", str(e)))
 
@@ -119,6 +126,7 @@ def make_app(
 
         # Non-streaming path
         narration_lines: list[str] = []
+        assistant_parts: list[str] = []
         if narration:
             agent.narration = True
             def _collect(msg):
@@ -126,16 +134,28 @@ def make_app(
                 narration_lines.append(msg)
             agent.on_narration = _collect
 
+        def _collect_assistant(text: str):
+            if text:
+                print(text, flush=True)
+                assistant_parts.append(text)
+        agent.on_assistant_content = _collect_assistant
+
         result = await agent.run(prompt)
         if response_filter:
             result = response_filter(result, agent.tool_calls)
 
+        # Visible body = mid-loop prose + final turn (images already in result if filtered).
+        body_parts = [p.strip() for p in assistant_parts if p and p.strip()]
+        if result and result.strip():
+            body_parts.append(result.strip())
+        body = "\n\n".join(body_parts)
+
         if narration_lines:
-            result = f"<think>\n{chr(10).join(narration_lines)}\n</think>\n{result}"
+            body = f"<think>\n{chr(10).join(narration_lines)}\n</think>\n{body}"
 
         tc = agent.token_counts
         logger.debug("chat cid=%s turns=%d tokens=%d", cid, agent.turn_count, tc["prompt"] + tc["completion"])
-        return _non_stream_response(result, cid, created, model_id, tc["prompt"], tc["completion"])
+        return _non_stream_response(body, cid, created, model_id, tc["prompt"], tc["completion"])
 
     return app
 
@@ -153,8 +173,38 @@ def _non_stream_response(content: str, cid: str, created: int, model_id: str, pr
     }
 
 
+def _stream_text_chunks(cid: str, created: int, model_id: str, text: str) -> list[str]:
+    """Split text into SSE chunks. Prefer paragraph-ish chunks over pure word drip for prose."""
+    if not text:
+        return []
+    chunks: list[str] = []
+    # Keep word-level drip for short strings; larger blocks stream by lines for readability.
+    if len(text) < 80:
+        words = text.split(" ")
+        for i, word in enumerate(words):
+            content = word if i == len(words) - 1 else word + " "
+            chunks.append(_chunk(cid, created, model_id, {"content": content}))
+        return chunks
+
+    parts = text.split("\n")
+    for i, part in enumerate(parts):
+        piece = part if i == len(parts) - 1 else part + "\n"
+        if piece:
+            chunks.append(_chunk(cid, created, model_id, {"content": piece}))
+    return chunks
+
+
 async def _stream_live(queue: asyncio.Queue, cid: str, created: int, model_id: str, keepalive: bool = False) -> AsyncGenerator[str, None]:
     in_think = False
+    sent_role = False
+
+    def _open_message():
+        nonlocal sent_role
+        out = []
+        if not sent_role:
+            out.append(_chunk(cid, created, model_id, {"role": "assistant", "content": ""}))
+            sent_role = True
+        return out
 
     while True:
         try:
@@ -164,23 +214,42 @@ async def _stream_live(queue: asyncio.Queue, cid: str, created: int, model_id: s
             continue
 
         if type_ == "narration":
+            for c in _open_message():
+                yield c
             if not in_think:
-                yield _chunk(cid, created, model_id, {"role": "assistant", "content": "<think>\n"})
+                yield _chunk(cid, created, model_id, {"content": "<think>\n"})
                 in_think = True
             yield _chunk(cid, created, model_id, {"content": data + "\n"})
 
-        elif type_ == "done":
+        elif type_ == "assistant":
+            # Close any open think block so mid-loop prose is real message content.
+            for c in _open_message():
+                yield c
             if in_think:
                 yield _chunk(cid, created, model_id, {"content": "</think>\n"})
-            words = data.split(" ")
-            for i, word in enumerate(words):
-                content = word if i == len(words) - 1 else word + " "
-                yield _chunk(cid, created, model_id, {"content": content})
+                in_think = False
+            text = data if data.endswith("\n") else data + "\n\n"
+            for c in _stream_text_chunks(cid, created, model_id, text):
+                yield c
+
+        elif type_ == "done":
+            for c in _open_message():
+                yield c
+            if in_think:
+                yield _chunk(cid, created, model_id, {"content": "</think>\n"})
+                in_think = False
+            for c in _stream_text_chunks(cid, created, model_id, data):
+                yield c
             yield _chunk(cid, created, model_id, {}, finish_reason="stop")
             yield "data: [DONE]\n\n"
             break
 
         elif type_ == "error":
+            for c in _open_message():
+                yield c
+            if in_think:
+                yield _chunk(cid, created, model_id, {"content": "</think>\n"})
+                in_think = False
             yield _chunk(cid, created, model_id, {"content": f"Error: {data}"}, finish_reason="stop")
             yield "data: [DONE]\n\n"
             break
@@ -214,7 +283,8 @@ def serve(
     don't share history.
 
     narration=True (default) streams tool calls and intermediate steps as a
-    live <think> block. Set narration=False to disable.
+    live <think> block. Mid-loop assistant text (prose before tools) is streamed
+    as normal message content. Set narration=False to disable the think channel.
     """
     try:
         import uvicorn

@@ -125,6 +125,7 @@ async def test_narrator_prefix_prepended():
 
 
 async def test_narration_from_text_content():
+    """Default on_assistant_content routes mid-loop prose into narration."""
     fired = []
     agent = make_agent()
     agent.narration = True
@@ -135,6 +136,50 @@ async def test_narration_from_text_content():
     ])
     await agent.run("go")
     assert any("I'll check the weather." in s for s in fired)
+
+
+async def test_on_assistant_content_receives_mid_loop_prose():
+    """Chat harnesses override on_assistant_content to surface prose as the message."""
+    prose = []
+    narrated = []
+    agent = make_agent()
+    agent.narration = True
+    agent.on_narration = lambda s: narrated.append(s)
+    agent.on_assistant_content = lambda s: prose.append(s)
+    agent._complete = AsyncMock(side_effect=[
+        make_tool_call_message(
+            "spy_tool", {"city": "LA", "reason": "r"}, content="I'll check the weather."
+        ),
+        make_text_message("Sunny in LA."),
+    ])
+    result = await agent.run("go")
+    assert prose == ["I'll check the weather."]
+    # Mid-loop prose must not also appear in the narration channel when overridden.
+    assert not any("I'll check the weather." in s for s in narrated)
+    assert result == "Sunny in LA."
+
+
+async def test_on_assistant_content_fires_before_tool():
+    order = []
+
+    @tool
+    def ordered_tool(x: str) -> str:
+        """Ordered."""
+        order.append("tool")
+        return "ok"
+
+    agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"), tools=[ordered_tool])
+    agent.narration = True
+    agent.on_assistant_content = lambda s: order.append(("prose", s))
+    agent._complete = AsyncMock(side_effect=[
+        make_tool_call_message(
+            "ordered_tool", {"x": "a", "reason": "r"}, content="Acting now."
+        ),
+        make_text_message(),
+    ])
+    await agent.run("go")
+    prose_idx = next(i for i, e in enumerate(order) if isinstance(e, tuple) and e[0] == "prose")
+    assert prose_idx < order.index("tool")
 
 
 async def test_custom_callback_receives_string():

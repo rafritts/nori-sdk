@@ -115,6 +115,11 @@ class Agent:
         tool_schema_filter: Callable[[str, dict], dict] | None = None,
         require_no_tools_ack: bool = False,
         no_tools_ack_max: int = 3,
+        # Optional override for the no-tools challenge user message.
+        no_tools_ack_message: str | None = None,
+        # When set, force tool_choice to this function until any tool runs this run.
+        # Also rejects NO_TOOL_CALLS while still forcing (cannot opt out).
+        force_tool: str | None = None,
     ):
         _d = config.get_defaults()
         model = model or _d.model
@@ -179,6 +184,10 @@ class Agent:
         if no_tools_ack_max < 1:
             raise ValueError("Agent no_tools_ack_max must be a positive integer.")
         self.no_tools_ack_max = no_tools_ack_max
+        # Harness may replace the challenge text (e.g. show-and-tell bias).
+        self.no_tools_ack_message = no_tools_ack_message or _NO_TOOL_CALLS_ACK_MESSAGE
+        # Optional: pin tool_choice to this function name until a real tool runs.
+        self.force_tool = force_tool
         self._pending_final_content: str | None = None
         self._no_tools_challenge_count = 0
         # True once any real tool ran this run — skip the NO_TOOL_CALLS gate after that.
@@ -466,6 +475,8 @@ class Agent:
             tool_schema_filter=self.tool_schema_filter,
             require_no_tools_ack=self.require_no_tools_ack,
             no_tools_ack_max=self.no_tools_ack_max,
+            no_tools_ack_message=self.no_tools_ack_message,
+            force_tool=self.force_tool,
         )
 
     async def __call__(self, task: str, reason: str = "") -> str:
@@ -788,11 +799,27 @@ class Agent:
         is_parallel = len(tool_calls) > 1
         return list(await asyncio.gather(*[self._invoke_tool(tc, is_parallel) for tc in tool_calls]))
 
+    def _force_tool_active(self) -> bool:
+        """True when force_tool is set and no real tool has run yet this run."""
+        return bool(self.force_tool) and not self._tools_used_this_run
+
     async def _complete(self, history: list[dict]) -> ChatCompletionMessage:
         messages = self._build_messages(history)
         kwargs: dict = {**self._model.completion_kwargs(), "messages": messages}
         if self._tools:
             kwargs["tools"] = self._tool_schemas()
+            # Pin tool_choice while force_tool is active (e.g. user asked for a pic).
+            if self._force_tool_active():
+                names = {
+                    s.get("function", {}).get("name")
+                    for s in kwargs["tools"]
+                    if isinstance(s, dict)
+                }
+                if self.force_tool in names:
+                    kwargs["tool_choice"] = {
+                        "type": "function",
+                        "function": {"name": self.force_tool},
+                    }
         response = await self._client.chat.completions.create(**kwargs)
         if response.usage:
             self._record_usage(response.usage)
@@ -1033,6 +1060,25 @@ class Agent:
             # no-tool turn is the legitimate final reply (don't burn another turn).
             if self.require_no_tools_ack and self._tools and not self._tools_used_this_run:
                 if _is_no_tools_ack(message.content):
+                    # force_tool active → cannot opt out with NO_TOOL_CALLS.
+                    if self._force_tool_active():
+                        self._no_tools_challenge_count += 1
+                        if self._no_tools_challenge_count >= self.no_tools_ack_max:
+                            logger.warning(
+                                "force_tool_ack_exhausted agent=%s tool=%s attempts=%d",
+                                self.name, self.force_tool, self._no_tools_challenge_count,
+                            )
+                            result = self._pending_final_content or ""
+                            return await self._finish_without_tools_async(result)
+                        self._history.append({
+                            "role": "user",
+                            "content": (
+                                f"[System] You must call {self.force_tool} via the "
+                                "function-calling API now. Do not reply with "
+                                f"{_NO_TOOL_CALLS_SENTINEL}."
+                            ),
+                        })
+                        continue
                     # Do not surface the sentinel to the user.
                     result = self._pending_final_content or ""
                     logger.debug(
@@ -1061,7 +1107,7 @@ class Agent:
                     "no_tools_ack_challenge agent=%s n=%d/%d",
                     self.name, self._no_tools_challenge_count, self.no_tools_ack_max,
                 )
-                self._history.append({"role": "user", "content": _NO_TOOL_CALLS_ACK_MESSAGE})
+                self._history.append({"role": "user", "content": self.no_tools_ack_message})
                 continue
 
             # Default exit: no tool calls (or tools already used this run).

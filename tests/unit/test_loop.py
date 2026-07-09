@@ -355,3 +355,52 @@ async def test_tools_used_skips_no_tools_ack_gate():
     result = await agent.run("pic?")
     assert result == "Done."
     assert agent._complete.call_count == 2
+
+
+async def test_force_tool_rejects_no_tools_ack():
+    """While force_tool is active, NO_TOOL_CALLS is not an exit."""
+    @tool
+    def generate_image_krea(prompt: str) -> str:
+        """Send a pic."""
+        return "ok"
+
+    agent = Agent(
+        name="T",
+        model=Model(id="grok-4.3", api_key="test-key"),
+        tools=[generate_image_krea],
+        require_no_tools_ack=True,
+        force_tool="generate_image_krea",
+        no_tools_ack_max=3,
+        max_turns=10,
+    )
+    agent._complete = AsyncMock(side_effect=[
+        make_text_message("here you go"),
+        make_text_message("NO_TOOL_CALLS"),
+        make_tool_call_message(
+            "generate_image_krea",
+            {"prompt": "a selfie", "reason": "r"},
+        ),
+        make_text_message(""),
+    ])
+    result = await agent.run("send a pic")
+    assert agent._tools_used_this_run is True
+    assert agent._complete.call_count == 4
+    assert result == "here you go" or result == ""
+
+
+async def test_custom_no_tools_ack_message_injected():
+    agent = Agent(
+        name="T",
+        model=Model(id="grok-4.3", api_key="test-key"),
+        tools=[get_weather],
+        require_no_tools_ack=True,
+        no_tools_ack_message="[System] SHOW_AND_TELL please",
+        max_turns=10,
+    )
+    agent._complete = AsyncMock(side_effect=[
+        make_text_message("hey"),
+        make_text_message("NO_TOOL_CALLS"),
+    ])
+    await agent.run("hi")
+    user_msgs = [m["content"] for m in agent._history if m.get("role") == "user"]
+    assert any("SHOW_AND_TELL" in (c or "") for c in user_msgs)

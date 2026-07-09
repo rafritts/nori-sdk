@@ -13,11 +13,31 @@ def make_text_message(content="Done."):
     return msg
 
 
-def make_completion_response(content="Done.", prompt_tokens=10, completion_tokens=5):
+def make_completion_response(
+    content="Done.",
+    prompt_tokens=10,
+    completion_tokens=5,
+    reasoning_tokens=0,
+    cost_in_usd_ticks=None,
+    total_tokens=None,
+):
     msg = make_text_message(content)
     usage = MagicMock()
     usage.prompt_tokens = prompt_tokens
     usage.completion_tokens = completion_tokens
+    # Avoid MagicMock auto-attrs being treated as ints.
+    if reasoning_tokens:
+        details = MagicMock()
+        details.reasoning_tokens = reasoning_tokens
+        usage.completion_tokens_details = details
+    else:
+        usage.completion_tokens_details = None
+    usage.total_tokens = (
+        total_tokens
+        if total_tokens is not None
+        else prompt_tokens + completion_tokens + reasoning_tokens
+    )
+    usage.cost_in_usd_ticks = cost_in_usd_ticks
     resp = MagicMock()
     resp.choices = [MagicMock(message=msg)]
     resp.usage = usage
@@ -58,6 +78,47 @@ async def test_token_counts_returns_dict():
         assert "prompt" in tc and "completion" in tc
         assert tc["prompt"] == 100
         assert tc["completion"] == 50
+        assert tc["reasoning"] == 0
+        assert tc["total"] == 150
+
+
+async def test_reasoning_tokens_included_in_total():
+    """xAI reasoning models put CoT in completion_tokens_details, not completion_tokens."""
+    with patch("nori.agent.AsyncOpenAI") as MockOpenAI:
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = AsyncMock(
+            return_value=make_completion_response(
+                prompt_tokens=198,
+                completion_tokens=4,
+                reasoning_tokens=357,
+            )
+        )
+        MockOpenAI.return_value = mock_client
+        agent = Agent(name="T", model=Model(id="grok-4-1-fast-reasoning", api_key="test-key"))
+        await agent.run("go")
+        tc = agent.token_counts
+        assert tc["prompt"] == 198
+        assert tc["completion"] == 4
+        assert tc["reasoning"] == 357
+        assert tc["total"] == 559
+
+
+async def test_cost_prefers_provider_ticks():
+    with patch("nori.agent.AsyncOpenAI") as MockOpenAI:
+        mock_client = MagicMock()
+        # 10_156_000 ticks = $0.0010156 (1 USD = 1e10 ticks)
+        mock_client.chat.completions.create = AsyncMock(
+            return_value=make_completion_response(
+                prompt_tokens=198,
+                completion_tokens=4,
+                reasoning_tokens=357,
+                cost_in_usd_ticks=10_156_000,
+            )
+        )
+        MockOpenAI.return_value = mock_client
+        agent = Agent(name="T", model=Model(id="grok-4-1-fast-reasoning", api_key="test-key"))
+        await agent.run("go")
+        assert agent.cost == pytest.approx(0.0010156)
 
 
 async def test_cost_is_float():
@@ -96,7 +157,7 @@ async def test_reset_clears_state():
         agent.reset()
         assert agent.turn_count == 0
         assert agent.history == []
-        assert agent.token_counts == {"prompt": 0, "completion": 0}
+        assert agent.token_counts == {"prompt": 0, "completion": 0, "reasoning": 0, "total": 0}
 
 
 def test_properties_are_read_only():
@@ -116,3 +177,6 @@ def test_model_pricing_lookup():
     assert cost == pytest.approx(2.50)
     cost = cost_for("unknown-model", 1_000_000, 1_000_000)
     assert cost == 0.0
+    # Reasoning billed at output rate
+    cost = cost_for("grok-4-1-fast-reasoning", 0, 0, reasoning_tokens=1_000_000)
+    assert cost == pytest.approx(0.50)

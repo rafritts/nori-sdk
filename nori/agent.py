@@ -16,7 +16,7 @@ from nori.exceptions import AntiSpinTerminated, MaxTurnsExceeded, MCPConnectionE
 from nori.mcp.server import MCPServer
 from nori.model import Model
 from nori.permissions import Permissions, PermissionGuard
-from nori.providers import cost_for
+from nori.providers import cost_for, cost_from_ticks
 from nori.scratchpad import Scratchpad, _scratchpad_var, _make_owner_tools, _make_propagate_tool
 from nori.summarizer import summarize
 
@@ -111,6 +111,11 @@ class Agent:
         self._prompt_tokens: int = 0
         self._last_prompt_tokens: int = 0
         self._completion_tokens: int = 0
+        # Chain-of-thought tokens (xAI reasoning models). Billed as output, not
+        # included in completion_tokens. See completion_tokens_details.reasoning_tokens.
+        self._reasoning_tokens: int = 0
+        # Sum of provider-reported cost_in_usd_ticks converted to USD, when present.
+        self._api_cost_usd: float | None = None
         self._tool_calls_log: list[dict] = []
         self.auditor = None
         self.narration_call_id: bool = True
@@ -479,7 +484,7 @@ class Agent:
     def _narrate_summary(self) -> None:
         if not self.narration or not self.narration_summary:
             return
-        total = self._prompt_tokens + self._completion_tokens
+        total = self._prompt_tokens + self._completion_tokens + self._reasoning_tokens
         elapsed_part = f" | {self._elapsed:.1f}s" if self._elapsed is not None else ""
         msg = (
             f"{self.narrator_prefix}{self.name}: "
@@ -680,14 +685,48 @@ class Agent:
             kwargs["tools"] = self._tool_schemas()
         response = await self._client.chat.completions.create(**kwargs)
         if response.usage:
-            pt = response.usage.prompt_tokens
-            ct = response.usage.completion_tokens
-            if isinstance(pt, int):
-                self._prompt_tokens += pt
-                self._last_prompt_tokens = pt
-            if isinstance(ct, int):
-                self._completion_tokens += ct
+            self._record_usage(response.usage)
         return response.choices[0].message
+
+    def _record_usage(self, usage) -> None:
+        """Accumulate provider usage. Includes reasoning tokens and exact $ ticks when present."""
+        pt = getattr(usage, "prompt_tokens", None)
+        ct = getattr(usage, "completion_tokens", None)
+        if isinstance(pt, int):
+            self._prompt_tokens += pt
+            self._last_prompt_tokens = pt
+        else:
+            pt = 0
+        if isinstance(ct, int):
+            self._completion_tokens += ct
+        else:
+            ct = 0
+
+        rt = 0
+        details = getattr(usage, "completion_tokens_details", None)
+        if details is not None:
+            raw = (
+                details.get("reasoning_tokens")
+                if isinstance(details, dict)
+                else getattr(details, "reasoning_tokens", None)
+            )
+            if isinstance(raw, int):
+                rt = raw
+
+        # total_tokens often includes reasoning even when details are missing.
+        total = getattr(usage, "total_tokens", None)
+        if isinstance(total, int) and total >= (pt or 0) + (ct or 0):
+            unaccounted = total - (pt or 0) - (ct or 0)
+            if unaccounted > rt:
+                rt = unaccounted
+
+        if rt:
+            self._reasoning_tokens += rt
+
+        ticks = getattr(usage, "cost_in_usd_ticks", None)
+        if isinstance(ticks, int) and ticks >= 0:
+            piece = cost_from_ticks(ticks)
+            self._api_cost_usd = (self._api_cost_usd or 0.0) + piece
 
     # ── QoL properties ────────────────────────────────────────────────────────
 
@@ -701,15 +740,28 @@ class Agent:
 
     @property
     def token_counts(self) -> dict[str, int]:
-        return {"prompt": self._prompt_tokens, "completion": self._completion_tokens}
+        return {
+            "prompt": self._prompt_tokens,
+            "completion": self._completion_tokens,
+            "reasoning": self._reasoning_tokens,
+            "total": self._prompt_tokens + self._completion_tokens + self._reasoning_tokens,
+        }
 
     @property
     def cost(self) -> float:
-        return cost_for(self.model, self._prompt_tokens, self._completion_tokens)
+        # Prefer provider-reported billed cost (includes cache discounts, reasoning, tools).
+        if self._api_cost_usd is not None:
+            return self._api_cost_usd
+        return cost_for(
+            self.model,
+            self._prompt_tokens,
+            self._completion_tokens,
+            reasoning_tokens=self._reasoning_tokens,
+        )
 
     @property
     def context_length(self) -> int:
-        return self._prompt_tokens + self._completion_tokens
+        return self._prompt_tokens + self._completion_tokens + self._reasoning_tokens
 
     @property
     def tool_calls(self) -> list[dict]:
@@ -726,6 +778,8 @@ class Agent:
         self._prompt_tokens = 0
         self._last_prompt_tokens = 0
         self._completion_tokens = 0
+        self._reasoning_tokens = 0
+        self._api_cost_usd = None
         self._tool_calls_log = []
         self._running_summary = ""
         self._compact_warning_injected = False

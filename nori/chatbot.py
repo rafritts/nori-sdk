@@ -16,6 +16,7 @@ Then point Open WebUI (or any OpenAI-compatible client) at http://localhost:7732
 import asyncio
 import json
 import logging
+import re
 import time
 import uuid
 from typing import AsyncGenerator, Callable
@@ -23,6 +24,28 @@ from typing import AsyncGenerator, Callable
 logger = logging.getLogger("nori.chatbot")
 
 _KEEPALIVE_INTERVAL = 5  # seconds between SSE keepalive pings
+_IMG_MD = re.compile(r"!\[([^\]]*)\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
+
+
+def _stream_filter_extra(base: str, filtered: str) -> str:
+    """Content to stream after per-turn text was already sent via on_assistant_content.
+
+    Prefer a pure suffix when the filter only appends (typical image inject).
+    If the filter rewrites/reorders (e.g. model put image markdown first), only
+    emit image markdown that was not already in the streamed base — never the
+    full filtered body, which would duplicate prose + images in the client.
+    """
+    if not filtered:
+        return ""
+    if not base:
+        return filtered
+    if filtered.startswith(base):
+        return filtered[len(base) :]
+    base_urls = {m.group(2) for m in _IMG_MD.finditer(base)}
+    new_imgs = [
+        m.group(0) for m in _IMG_MD.finditer(filtered) if m.group(2) not in base_urls
+    ]
+    return ("\n\n" + "\n\n".join(new_imgs)) if new_imgs else ""
 
 
 def make_app(
@@ -113,14 +136,14 @@ def make_app(
                     # Only push post-filter extras (e.g. injected image markdown).
                     extra = ""
                     if response_filter:
-                        filtered = response_filter(result or "", agent.tool_calls)
                         base = result or ""
-                        if base and filtered.startswith(base):
-                            extra = filtered[len(base):]
-                        elif filtered != base:
-                            extra = filtered
+                        filtered = response_filter(base, agent.tool_calls)
+                        extra = _stream_filter_extra(base, filtered)
                     tc = agent.token_counts
-                    logger.debug("chat cid=%s turns=%d tokens=%d", cid, agent.turn_count, tc["prompt"] + tc["completion"])
+                    logger.debug(
+                        "chat cid=%s turns=%d tokens=%d cost=$%.4f",
+                        cid, agent.turn_count, tc.get("total", tc["prompt"] + tc["completion"]), agent.cost,
+                    )
                     queue.put_nowait(("done", extra))
                 except Exception as e:
                     queue.put_nowait(("error", str(e)))
@@ -163,13 +186,35 @@ def make_app(
             body = f"<think>\n{chr(10).join(narration_lines)}\n</think>\n{body}"
 
         tc = agent.token_counts
-        logger.debug("chat cid=%s turns=%d tokens=%d", cid, agent.turn_count, tc["prompt"] + tc["completion"])
-        return _non_stream_response(body, cid, created, model_id, tc["prompt"], tc["completion"])
+        logger.debug(
+            "chat cid=%s turns=%d tokens=%d cost=$%.4f",
+            cid, agent.turn_count, tc.get("total", tc["prompt"] + tc["completion"]), agent.cost,
+        )
+        return _non_stream_response(
+            body, cid, created, model_id,
+            tc["prompt"], tc["completion"], tc.get("reasoning", 0),
+        )
 
     return app
 
 
-def _non_stream_response(content: str, cid: str, created: int, model_id: str, prompt_tokens: int, completion_tokens: int) -> dict:
+def _non_stream_response(
+    content: str,
+    cid: str,
+    created: int,
+    model_id: str,
+    prompt_tokens: int,
+    completion_tokens: int,
+    reasoning_tokens: int = 0,
+) -> dict:
+    total = prompt_tokens + completion_tokens + reasoning_tokens
+    usage: dict = {
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total,
+    }
+    if reasoning_tokens:
+        usage["completion_tokens_details"] = {"reasoning_tokens": reasoning_tokens}
     return {
         "id": cid,
         "object": "chat.completion",
@@ -178,7 +223,7 @@ def _non_stream_response(content: str, cid: str, created: int, model_id: str, pr
         "choices": [
             {"index": 0, "message": {"role": "assistant", "content": content}, "finish_reason": "stop"}
         ],
-        "usage": {"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens, "total_tokens": prompt_tokens + completion_tokens},
+        "usage": usage,
     }
 
 

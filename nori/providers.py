@@ -111,6 +111,28 @@ _PRICING: dict[str, _Price] = {
 }
 
 
-def cost_for(model: str, prompt_tokens: int, completion_tokens: int) -> float:
+# xAI (and some others) report exact billed cost as integer ticks.
+# 1 USD = 10^10 ticks. See https://docs.x.ai/developers/cost-tracking
+USD_TICKS_PER_DOLLAR = 10_000_000_000
+
+
+def cost_from_ticks(ticks: int) -> float:
+    return ticks / USD_TICKS_PER_DOLLAR
+
+
+def cost_for(
+    model: str,
+    prompt_tokens: int,
+    completion_tokens: int,
+    *,
+    reasoning_tokens: int = 0,
+) -> float:
+    """Estimate USD cost from token counts using the static price table.
+
+    Reasoning tokens (chain-of-thought) are billed at the completion/output rate
+    on xAI and are *not* included in ``completion_tokens``.
+    Prefer ``cost_from_ticks`` when the provider returns ``cost_in_usd_ticks``.
+    """
     price = _PRICING.get(model, _Price(prompt=0.0, completion=0.0))
-    return (prompt_tokens * price.prompt + completion_tokens * price.completion) / 1_000_000
+    output = completion_tokens + reasoning_tokens
+    return (prompt_tokens * price.prompt + output * price.completion) / 1_000_000

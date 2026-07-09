@@ -32,6 +32,36 @@ _COMPACT_WARNING = (
 )
 _COMPACT_MARKER = "__compact_warning__"
 
+# Exit gate when require_no_tools_ack is on: model must either call tools or
+# reply with this sentinel before the loop treats a no-tool turn as final.
+_NO_TOOL_CALLS_SENTINEL = "NO_TOOL_CALLS"
+_NO_TOOL_CALLS_ACK_MESSAGE = (
+    "[System] You produced a response without calling any tools. "
+    "If you still need tools, call them now via the function-calling API "
+    "(do not write tool calls as prose in your message). "
+    f"If you intentionally used no tools, reply with exactly: {_NO_TOOL_CALLS_SENTINEL}"
+)
+
+
+def _is_no_tools_ack(text: str | None) -> bool:
+    """True when the model is confirming it intentionally called no tools."""
+    if not text:
+        return False
+    import re
+
+    t = text.strip().upper()
+    t = re.sub(r"[‘’`]", "'", t)
+    t = re.sub(r"[.!\s]+$", "", t)
+    t = re.sub(r"\s+", " ", t)
+    return t in {
+        "NO_TOOL_CALLS",
+        "NO TOOL CALLS",
+        "NO-TOOLS",
+        "NO TOOLS",
+        "I DIDN'T CALL ANY TOOLS",
+        "I DID NOT CALL ANY TOOLS",
+    }
+
 
 class Agent:
     def __init__(
@@ -57,6 +87,8 @@ class Agent:
         output_format: OutputFormat = OutputFormat.TEXT,
         tool_args_filter: Callable[[str, dict], dict] | None = None,
         tool_schema_filter: Callable[[str, dict], dict] | None = None,
+        require_no_tools_ack: bool = False,
+        no_tools_ack_max: int = 2,
     ):
         _d = config.get_defaults()
         model = model or _d.model
@@ -114,6 +146,15 @@ class Agent:
         self.tool_schema_filter = tool_schema_filter
         self.tool_timeout: float | None = tool_timeout
         self.run_timeout: float | None = run_timeout
+        # When True and the agent has tools, a no-tool turn cannot end the run
+        # until the model either calls tools or replies NO_TOOL_CALLS. Catches
+        # "tool call as prose" failures (model narrates a call but never emits one).
+        self.require_no_tools_ack = require_no_tools_ack
+        if no_tools_ack_max < 1:
+            raise ValueError("Agent no_tools_ack_max must be a positive integer.")
+        self.no_tools_ack_max = no_tools_ack_max
+        self._pending_final_content: str | None = None
+        self._no_tools_challenge_count = 0
         self._run_start: float | None = None
         self._elapsed: float | None = None
         self._prompt_tokens: int = 0
@@ -393,6 +434,8 @@ class Agent:
             output_format=self.output_format,
             tool_args_filter=self.tool_args_filter,
             tool_schema_filter=self.tool_schema_filter,
+            require_no_tools_ack=self.require_no_tools_ack,
+            no_tools_ack_max=self.no_tools_ack_max,
         )
 
     async def __call__(self, task: str, reason: str = "") -> str:
@@ -801,11 +844,30 @@ class Agent:
         self._tool_calls_log = []
         self._running_summary = ""
         self._compact_warning_injected = False
+        self._pending_final_content = None
+        self._no_tools_challenge_count = 0
         self._trace_id = None
         self._span_id = None
         self.parent_span_id = None
         self._run_start = None
         self._elapsed = None
+
+    async def _finish_without_tools_async(self, result: str) -> str:
+        """Shared exit path when the run ends on a no-tool turn."""
+        if self.running_context_summary:
+            self._running_summary = await update_running_summary(
+                self._history, self._running_summary, self._client, self.model
+            )
+            self._history = inject_summary(self._history, self._running_summary)
+        self._narrate_summary()
+        self._audit(
+            "agent_end",
+            agent=self.name, result=result, turns=self._turn_count, cost=self.cost,
+            prompt_tokens=self._prompt_tokens, completion_tokens=self._completion_tokens,
+            trace_id=self._trace_id, span_id=self._span_id,
+            parent_span_id=self.parent_span_id,
+        )
+        return result
 
     async def run(
         self,
@@ -878,6 +940,8 @@ class Agent:
                 self._scratchpad.dump_audit(self.name)
 
     async def _run_loop(self) -> str:
+        self._pending_final_content = None
+        self._no_tools_challenge_count = 0
         while True:
             if self._max_turns is not None and self._turn_count >= self._max_turns:
                 raise MaxTurnsExceeded(f"Reached max_turns={self._max_turns}")
@@ -892,32 +956,56 @@ class Agent:
 
             await self._handle_context_pressure(self._context_fill())
 
-            # Every text block the model emits is user-visible message content.
-            # Deliver it as soon as this turn completes — before tools run, and on
-            # the final no-tool turn — so harnesses can show prose without waiting
-            # for the rest of the agent loop (image gen, more tools, etc.).
-            if message.content:
-                self.on_assistant_content(message.content)
-
             if self._checkpoint and self._turn_count % self._checkpoint.every == 0:
                 await self._run_checkpoint()
 
-            if not message.tool_calls:
-                if self.running_context_summary:
-                    self._running_summary = await update_running_summary(
-                        self._history, self._running_summary, self._client, self.model
-                    )
-                    self._history = inject_summary(self._history, self._running_summary)
-                result = message.content or ""
-                self._narrate_summary()
-                self._audit(
-                    "agent_end",
-                    agent=self.name, result=result, turns=self._turn_count, cost=self.cost,
-                    prompt_tokens=self._prompt_tokens, completion_tokens=self._completion_tokens,
-                    trace_id=self._trace_id, span_id=self._span_id,
-                    parent_span_id=self.parent_span_id,
-                )
-                return result
+            if message.tool_calls:
+                # Prose on a tool-call turn is user-visible immediately (before tools run).
+                if message.content:
+                    self.on_assistant_content(message.content)
+                # Real tool use clears the no-tools exit gate.
+                self._no_tools_challenge_count = 0
+                self._pending_final_content = None
+                tool_results = await self._execute_tools(message.tool_calls)
+                self._history.extend(tool_results)
+                continue
 
-            tool_results = await self._execute_tools(message.tool_calls)
-            self._history.extend(tool_results)
+            # ── No tool calls this turn ──────────────────────────────────────
+            # Optional gate: when tools exist and require_no_tools_ack is on, the
+            # model must either call tools or explicitly say NO_TOOL_CALLS before
+            # we end the run. Stops "tool call as prose" from counting as done.
+            if self.require_no_tools_ack and self._tools:
+                if _is_no_tools_ack(message.content):
+                    # Do not surface the sentinel to the user.
+                    result = self._pending_final_content or ""
+                    logger.debug(
+                        "no_tools_ack agent=%s pending_chars=%d",
+                        self.name, len(result),
+                    )
+                    return await self._finish_without_tools_async(result)
+
+                # Candidate final prose — stream it, then demand an ack (or tools).
+                if message.content:
+                    self.on_assistant_content(message.content)
+                    self._pending_final_content = message.content
+
+                if self._no_tools_challenge_count >= self.no_tools_ack_max:
+                    logger.warning(
+                        "no_tools_ack_forced agent=%s challenges=%d",
+                        self.name, self._no_tools_challenge_count,
+                    )
+                    result = self._pending_final_content or (message.content or "")
+                    return await self._finish_without_tools_async(result)
+
+                self._no_tools_challenge_count += 1
+                logger.debug(
+                    "no_tools_ack_challenge agent=%s n=%d",
+                    self.name, self._no_tools_challenge_count,
+                )
+                self._history.append({"role": "user", "content": _NO_TOOL_CALLS_ACK_MESSAGE})
+                continue
+
+            # Default exit: no tool calls, no ack required.
+            if message.content:
+                self.on_assistant_content(message.content)
+            return await self._finish_without_tools_async(message.content or "")

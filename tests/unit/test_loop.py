@@ -177,3 +177,94 @@ async def test_tools_schemas_passed_to_complete():
         call_kwargs = mock_client.chat.completions.create.call_args.kwargs
         assert "tools" in call_kwargs
         assert call_kwargs["tools"][0]["function"]["name"] == "get_weather"
+
+
+async def test_require_no_tools_ack_gates_exit():
+    """With the gate on, a no-tool reply is not final until NO_TOOL_CALLS."""
+    @tool
+    def noop(x: str) -> str:
+        """Noop."""
+        return "ok"
+
+    agent = Agent(
+        name="T",
+        model=Model(id="grok-4.3", api_key="test-key"),
+        tools=[noop],
+        require_no_tools_ack=True,
+        max_turns=10,
+    )
+    agent._complete = AsyncMock(side_effect=[
+        make_text_message("Hey babe."),
+        make_text_message("NO_TOOL_CALLS"),
+    ])
+    seen = []
+    agent.on_assistant_content = lambda t: seen.append(t)
+
+    result = await agent.run("hi")
+    assert result == "Hey babe."
+    assert agent._complete.call_count == 2
+    assert seen == ["Hey babe."]  # sentinel not surfaced
+    # Challenge injected into history
+    user_msgs = [m["content"] for m in agent._history if m.get("role") == "user"]
+    assert any("NO_TOOL_CALLS" in (c or "") for c in user_msgs[1:])
+
+
+async def test_require_no_tools_ack_allows_real_tool_after_prose():
+    """Fake tool prose → challenge → real tool call → final ack."""
+    called = {}
+
+    @tool
+    def spy_tool(city: str) -> str:
+        """Spy."""
+        called["city"] = city
+        return "sunny"
+
+    agent = Agent(
+        name="T",
+        model=Model(id="grok-4.3", api_key="test-key"),
+        tools=[spy_tool],
+        require_no_tools_ack=True,
+        max_turns=10,
+    )
+    agent._complete = AsyncMock(side_effect=[
+        make_text_message("tool call spy_tool with city Austin — here you go"),
+        make_tool_call_message("spy_tool", {"city": "Austin", "reason": "r"}),
+        make_text_message("It's sunny."),
+        make_text_message("NO_TOOL_CALLS"),
+    ])
+    result = await agent.run("pic?")
+    assert called["city"] == "Austin"
+    assert result == "It's sunny."
+    assert agent._complete.call_count == 4
+
+
+async def test_require_no_tools_ack_skipped_without_tools():
+    """Gate is a no-op when the agent has no tools registered."""
+    agent = Agent(
+        name="T",
+        model=Model(id="grok-4.3", api_key="test-key"),
+        require_no_tools_ack=True,
+    )
+    agent._complete = AsyncMock(return_value=make_text_message("Hello!"))
+    result = await agent.run("Say hi")
+    assert result == "Hello!"
+    assert agent._complete.call_count == 1
+
+
+async def test_require_no_tools_ack_forced_after_max_challenges():
+    agent = Agent(
+        name="T",
+        model=Model(id="grok-4.3", api_key="test-key"),
+        tools=[get_weather],
+        require_no_tools_ack=True,
+        no_tools_ack_max=2,
+        max_turns=10,
+    )
+    agent._complete = AsyncMock(side_effect=[
+        make_text_message("one"),
+        make_text_message("two"),
+        make_text_message("three"),  # third no-tool after 2 challenges → force exit
+    ])
+    result = await agent.run("hi")
+    assert result == "three"
+    assert agent._complete.call_count == 3

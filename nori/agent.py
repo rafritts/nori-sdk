@@ -820,10 +820,11 @@ class Agent:
 
             await self._handle_context_pressure(self._context_fill())
 
-            # Text alongside tool calls is user-visible message content in normal
-            # tool-calling UIs — not a "thinking" side channel. Deliver it before
-            # tools run so harnesses can stream prose while generation is in flight.
-            if message.content and message.tool_calls:
+            # Every text block the model emits is user-visible message content.
+            # Deliver it as soon as this turn completes — before tools run, and on
+            # the final no-tool turn — so harnesses can show prose without waiting
+            # for the rest of the agent loop (image gen, more tools, etc.).
+            if message.content:
                 self.on_assistant_content(message.content)
 
             if self._checkpoint and self._turn_count % self._checkpoint.every == 0:

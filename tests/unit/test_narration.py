@@ -138,8 +138,8 @@ async def test_narration_from_text_content():
     assert any("I'll check the weather." in s for s in fired)
 
 
-async def test_on_assistant_content_receives_mid_loop_prose():
-    """Chat harnesses override on_assistant_content to surface prose as the message."""
+async def test_on_assistant_content_receives_each_text_block():
+    """Each turn's text is delivered as it arrives — including the final turn."""
     prose = []
     narrated = []
     agent = make_agent()
@@ -153,9 +153,10 @@ async def test_on_assistant_content_receives_mid_loop_prose():
         make_text_message("Sunny in LA."),
     ])
     result = await agent.run("go")
-    assert prose == ["I'll check the weather."]
-    # Mid-loop prose must not also appear in the narration channel when overridden.
+    assert prose == ["I'll check the weather.", "Sunny in LA."]
+    # Overridden callback must not also dump prose into narration.
     assert not any("I'll check the weather." in s for s in narrated)
+    assert not any("Sunny in LA." in s for s in narrated)
     assert result == "Sunny in LA."
 
 

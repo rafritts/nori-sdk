@@ -99,7 +99,7 @@ def make_app(
                     queue.put_nowait(("narration", msg))
                 agent.on_narration = _on_narration
 
-            # Mid-loop assistant prose → visible message content (not <think>).
+            # Each turn's text block → visible message content as soon as it arrives.
             def _on_assistant_content(text: str):
                 if text:
                     print(text, flush=True)
@@ -109,11 +109,19 @@ def make_app(
             async def _run():
                 try:
                     result = await agent.run(prompt)
+                    # Text was already pushed per-turn via on_assistant_content.
+                    # Only push post-filter extras (e.g. injected image markdown).
+                    extra = ""
                     if response_filter:
-                        result = response_filter(result, agent.tool_calls)
+                        filtered = response_filter(result or "", agent.tool_calls)
+                        base = result or ""
+                        if base and filtered.startswith(base):
+                            extra = filtered[len(base):]
+                        elif filtered != base:
+                            extra = filtered
                     tc = agent.token_counts
                     logger.debug("chat cid=%s turns=%d tokens=%d", cid, agent.turn_count, tc["prompt"] + tc["completion"])
-                    queue.put_nowait(("done", result or ""))
+                    queue.put_nowait(("done", extra))
                 except Exception as e:
                     queue.put_nowait(("error", str(e)))
 
@@ -141,14 +149,15 @@ def make_app(
         agent.on_assistant_content = _collect_assistant
 
         result = await agent.run(prompt)
-        if response_filter:
-            result = response_filter(result, agent.tool_calls)
 
-        # Visible body = mid-loop prose + final turn (images already in result if filtered).
+        # Per-turn text already collected (including final turn) — don't double-append result.
         body_parts = [p.strip() for p in assistant_parts if p and p.strip()]
-        if result and result.strip():
+        if not body_parts and result and result.strip():
             body_parts.append(result.strip())
         body = "\n\n".join(body_parts)
+
+        if response_filter:
+            body = response_filter(body, agent.tool_calls)
 
         if narration_lines:
             body = f"<think>\n{chr(10).join(narration_lines)}\n</think>\n{body}"
@@ -283,8 +292,9 @@ def serve(
     don't share history.
 
     narration=True (default) streams tool calls and intermediate steps as a
-    live <think> block. Mid-loop assistant text (prose before tools) is streamed
-    as normal message content. Set narration=False to disable the think channel.
+    live <think> block. Each turn's assistant text is sent as message content as
+    soon as that turn completes (before tools run). Set narration=False to
+    disable the think channel.
     """
     try:
         import uvicorn

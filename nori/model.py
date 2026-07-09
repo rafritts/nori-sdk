@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from nori.enums import ContextWindow
 
 if TYPE_CHECKING:
     from nori.providers import Provider
+
+ReasoningEffort = Literal["none", "low", "medium", "high"]
+_VALID_REASONING_EFFORT = frozenset({"none", "low", "medium", "high"})
 
 
 @dataclass
@@ -18,12 +21,20 @@ class Model:
     provider: Provider | None = None
     region: str | None = None      # AWS region for Provider.BEDROCK; ignored by all others
     http_client: object | None = None  # custom httpx.AsyncClient; bypasses api_key/base_url auth
+    # xAI grok-4.3+ (and similar): none | low | medium | high. None = omit from request
+    # (provider default). Chat Completions uses top-level ``reasoning_effort``.
+    reasoning_effort: ReasoningEffort | None = None
 
     def __post_init__(self):
         if not self.id:
             raise ValueError("Model.id must be a non-empty string.")
         if self.context_window <= 0:
             raise ValueError("Model.context_window must be a positive integer.")
+        if self.reasoning_effort is not None and self.reasoning_effort not in _VALID_REASONING_EFFORT:
+            raise ValueError(
+                f"Model.reasoning_effort must be one of {sorted(_VALID_REASONING_EFFORT)} "
+                f"or None, got {self.reasoning_effort!r}."
+            )
 
         if self.provider is not None:
             from nori.providers import Provider as P
@@ -54,7 +65,15 @@ class Model:
 
     def __repr__(self) -> str:
         provider_part = f" ({self.provider.name})" if self.provider is not None else ""
-        return f"Model(id={self.id!r}{provider_part})"
+        effort_part = f", reasoning_effort={self.reasoning_effort!r}" if self.reasoning_effort else ""
+        return f"Model(id={self.id!r}{provider_part}{effort_part})"
+
+    def completion_kwargs(self) -> dict:
+        """Extra kwargs for OpenAI-compatible chat.completions.create calls."""
+        kwargs: dict = {"model": self.id}
+        if self.reasoning_effort is not None:
+            kwargs["reasoning_effort"] = self.reasoning_effort
+        return kwargs
 
     def _setup_bedrock(self) -> None:
         import os

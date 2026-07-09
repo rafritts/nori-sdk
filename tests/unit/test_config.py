@@ -138,6 +138,22 @@ def test_model_http_client_without_base_url_raises():
         Model(id="x", api_key="k", http_client=MagicMock())
 
 
+def test_model_reasoning_effort_valid():
+    m = Model(id="grok-4.3", api_key="k", reasoning_effort="low")
+    assert m.reasoning_effort == "low"
+    assert m.completion_kwargs() == {"model": "grok-4.3", "reasoning_effort": "low"}
+
+
+def test_model_reasoning_effort_omitted_when_none():
+    m = Model(id="grok-4.3", api_key="k")
+    assert m.completion_kwargs() == {"model": "grok-4.3"}
+
+
+def test_model_reasoning_effort_invalid_raises():
+    with pytest.raises(ValueError, match="reasoning_effort"):
+        Model(id="x", api_key="k", reasoning_effort="ultra")  # type: ignore[arg-type]
+
+
 # ── server.py coverage ────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio

@@ -680,7 +680,7 @@ class Agent:
 
     async def _complete(self, history: list[dict]) -> ChatCompletionMessage:
         messages = self._build_messages(history)
-        kwargs: dict = {"model": self.model, "messages": messages}
+        kwargs: dict = {**self._model.completion_kwargs(), "messages": messages}
         if self._tools:
             kwargs["tools"] = self._tool_schemas()
         response = await self._client.chat.completions.create(**kwargs)

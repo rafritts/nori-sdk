@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from nori import Agent, Model
+from nori.agent import _is_duplicate_assistant_prose
 from nori.exceptions import MaxTurnsExceeded
 from nori.tool import tool
 
@@ -15,13 +16,13 @@ def make_text_message(content="Done."):
     return msg
 
 
-def make_tool_call_message(name, args, call_id="call_1"):
+def make_tool_call_message(name, args, call_id="call_1", content=None):
     tc = MagicMock()
     tc.id = call_id
     tc.function.name = name
     tc.function.arguments = json.dumps(args)
     msg = MagicMock()
-    msg.content = None
+    msg.content = content
     msg.tool_calls = [tc]
     return msg
 
@@ -210,7 +211,7 @@ async def test_require_no_tools_ack_gates_exit():
 
 
 async def test_require_no_tools_ack_allows_real_tool_after_prose():
-    """Fake tool prose → challenge → real tool call → final ack."""
+    """Fake tool prose → challenge → real tool call → final (no second ack turn)."""
     called = {}
 
     @tool
@@ -230,12 +231,12 @@ async def test_require_no_tools_ack_allows_real_tool_after_prose():
         make_text_message("tool call spy_tool with city Austin — here you go"),
         make_tool_call_message("spy_tool", {"city": "Austin", "reason": "r"}),
         make_text_message("It's sunny."),
-        make_text_message("NO_TOOL_CALLS"),
     ])
     result = await agent.run("pic?")
     assert called["city"] == "Austin"
     assert result == "It's sunny."
-    assert agent._complete.call_count == 4
+    # After a real tool runs, the next no-tool turn is final — no NO_TOOL_CALLS round-trip.
+    assert agent._complete.call_count == 3
 
 
 async def test_require_no_tools_ack_skipped_without_tools():
@@ -269,3 +270,88 @@ async def test_require_no_tools_ack_forced_after_max_challenges():
     result = await agent.run("hi")
     assert result == "three"
     assert agent._complete.call_count == 3
+
+
+async def test_post_tool_duplicate_caption_not_re_emitted():
+    """Caption on the tool turn must not appear twice when the model re-says it."""
+    caption = (
+        "Sure thing, babe. I've been thinking about you tonight anyway, "
+        "so here's something just for you.\nHope you like it."
+    )
+
+    @tool
+    def send_pic(prompt: str) -> str:
+        """Send a pic."""
+        return "Image generated: https://example.com/x.png"
+
+    agent = Agent(
+        name="T",
+        model=Model(id="grok-4.3", api_key="test-key"),
+        tools=[send_pic],
+        require_no_tools_ack=True,
+        max_turns=10,
+    )
+    agent._complete = AsyncMock(side_effect=[
+        make_tool_call_message(
+            "send_pic", {"prompt": "selfie"}, content=caption,
+        ),
+        make_text_message(caption),  # model re-emits the same caption
+    ])
+    seen = []
+    agent.on_assistant_content = lambda t: seen.append(t)
+
+    result = await agent.run("pic?")
+    assert seen == [caption]
+    assert result == caption
+    assert agent._complete.call_count == 2
+
+
+async def test_post_tool_empty_keeps_pre_tool_caption():
+    """Empty final turn after tools returns the pre-tool caption."""
+    caption = "Here you go."
+
+    @tool
+    def send_pic(prompt: str) -> str:
+        """Send a pic."""
+        return "ok"
+
+    agent = Agent(
+        name="T",
+        model=Model(id="grok-4.3", api_key="test-key"),
+        tools=[send_pic],
+        require_no_tools_ack=True,
+        max_turns=10,
+    )
+    agent._complete = AsyncMock(side_effect=[
+        make_tool_call_message("send_pic", {"prompt": "x"}, content=caption),
+        make_text_message(""),
+    ])
+    seen = []
+    agent.on_assistant_content = lambda t: seen.append(t)
+
+    result = await agent.run("pic?")
+    assert seen == [caption]
+    assert result == caption
+
+
+async def test_tools_used_skips_no_tools_ack_gate():
+    """Once tools ran this run, a no-tool final needs no NO_TOOL_CALLS ack."""
+    @tool
+    def send_pic(prompt: str) -> str:
+        """Send a pic."""
+        return "ok"
+
+    agent = Agent(
+        name="T",
+        model=Model(id="grok-4.3", api_key="test-key"),
+        tools=[send_pic],
+        require_no_tools_ack=True,
+        max_turns=10,
+    )
+    agent._complete = AsyncMock(side_effect=[
+        make_tool_call_message("send_pic", {"prompt": "x"}, content="Sent."),
+        make_text_message("Done."),
+    ])
+    result = await agent.run("pic?")
+    assert result == "Done."
+    assert agent._complete.call_count == 2

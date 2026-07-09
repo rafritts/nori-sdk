@@ -63,6 +63,32 @@ def _is_no_tools_ack(text: str | None) -> bool:
     }
 
 
+def _normalize_assistant_prose(text: str) -> str:
+    """Collapse whitespace for duplicate detection across agent turns."""
+    import re
+
+    return re.sub(r"\s+", " ", text.strip()).lower()
+
+
+def _is_duplicate_assistant_prose(new: str, prior: str) -> bool:
+    """True when *new* is the same user-facing text as *prior* (or a subset).
+
+    Models often re-emit the same caption after a tool returns; chat UIs that
+    flush every turn's content would then show it twice.
+    """
+    n = _normalize_assistant_prose(new)
+    p = _normalize_assistant_prose(prior)
+    if not n or not p:
+        return False
+    if n == p:
+        return True
+    # Minor rephrase that only adds/drops a clause still counts as a dupe if
+    # one fully contains the other and both are non-trivial.
+    if len(n) >= 12 and len(p) >= 12 and (n in p or p in n):
+        return True
+    return False
+
+
 class Agent:
     def __init__(
         self,
@@ -155,6 +181,10 @@ class Agent:
         self.no_tools_ack_max = no_tools_ack_max
         self._pending_final_content: str | None = None
         self._no_tools_challenge_count = 0
+        # True once any real tool ran this run — skip the NO_TOOL_CALLS gate after that.
+        self._tools_used_this_run = False
+        # Prose already flushed via on_assistant_content this run (dedupe repeats).
+        self._emitted_assistant_content: list[str] = []
         self._run_start: float | None = None
         self._elapsed: float | None = None
         self._prompt_tokens: int = 0
@@ -514,6 +544,25 @@ class Agent:
         narration_logger.debug(msg)
         self.on_narration(msg)
 
+    def _emit_assistant_content(self, text: str | None) -> bool:
+        """Flush user-visible assistant prose once per distinct block this run.
+
+        Returns True if the callback was invoked. Skips empty text and blocks that
+        duplicate something already streamed (common after tool turns).
+        """
+        if not text or not text.strip():
+            return False
+        for prior in self._emitted_assistant_content:
+            if _is_duplicate_assistant_prose(text, prior):
+                logger.debug(
+                    "assistant_content_deduped agent=%s chars=%d",
+                    self.name, len(text),
+                )
+                return False
+        self._emitted_assistant_content.append(text)
+        self.on_assistant_content(text)
+        return True
+
     def _default_tool_result_handler(self, name: str, result: str, call_id: str | None, trace_id: str | None) -> None:
         pass
 
@@ -846,6 +895,8 @@ class Agent:
         self._compact_warning_injected = False
         self._pending_final_content = None
         self._no_tools_challenge_count = 0
+        self._tools_used_this_run = False
+        self._emitted_assistant_content = []
         self._trace_id = None
         self._span_id = None
         self.parent_span_id = None
@@ -942,6 +993,8 @@ class Agent:
     async def _run_loop(self) -> str:
         self._pending_final_content = None
         self._no_tools_challenge_count = 0
+        self._tools_used_this_run = False
+        self._emitted_assistant_content = []
         while True:
             if self._max_turns is not None and self._turn_count >= self._max_turns:
                 raise MaxTurnsExceeded(f"Reached max_turns={self._max_turns}")
@@ -961,11 +1014,13 @@ class Agent:
 
             if message.tool_calls:
                 # Prose on a tool-call turn is user-visible immediately (before tools run).
+                # Keep it as pending so a later empty/ack turn still has a return value.
                 if message.content:
-                    self.on_assistant_content(message.content)
-                # Real tool use clears the no-tools exit gate.
+                    self._emit_assistant_content(message.content)
+                    self._pending_final_content = message.content
+                # Real tool use clears the no-tools exit gate for the rest of this run.
                 self._no_tools_challenge_count = 0
-                self._pending_final_content = None
+                self._tools_used_this_run = True
                 tool_results = await self._execute_tools(message.tool_calls)
                 self._history.extend(tool_results)
                 continue
@@ -974,7 +1029,9 @@ class Agent:
             # Optional gate: when tools exist and require_no_tools_ack is on, the
             # model must either call tools or explicitly say NO_TOOL_CALLS before
             # we end the run. Stops "tool call as prose" from counting as done.
-            if self.require_no_tools_ack and self._tools:
+            # After real tools already ran this run, skip the gate — the next
+            # no-tool turn is the legitimate final reply (don't burn another turn).
+            if self.require_no_tools_ack and self._tools and not self._tools_used_this_run:
                 if _is_no_tools_ack(message.content):
                     # Do not surface the sentinel to the user.
                     result = self._pending_final_content or ""
@@ -986,7 +1043,7 @@ class Agent:
 
                 # Candidate final prose — stream it, then demand an ack (or tools).
                 if message.content:
-                    self.on_assistant_content(message.content)
+                    self._emit_assistant_content(message.content)
                     self._pending_final_content = message.content
 
                 self._no_tools_challenge_count += 1
@@ -1007,7 +1064,14 @@ class Agent:
                 self._history.append({"role": "user", "content": _NO_TOOL_CALLS_ACK_MESSAGE})
                 continue
 
-            # Default exit: no tool calls, no ack required.
+            # Default exit: no tool calls (or tools already used this run).
+            # Dedup so a post-tool re-caption isn't shown twice. Never surface
+            # the NO_TOOL_CALLS sentinel even if the model still emits it.
+            if _is_no_tools_ack(message.content):
+                result = self._pending_final_content or ""
+                return await self._finish_without_tools_async(result)
             if message.content:
-                self.on_assistant_content(message.content)
-            return await self._finish_without_tools_async(message.content or "")
+                self._emit_assistant_content(message.content)
+                self._pending_final_content = message.content
+            result = self._pending_final_content or (message.content or "")
+            return await self._finish_without_tools_async(result)

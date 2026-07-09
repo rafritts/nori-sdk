@@ -85,6 +85,9 @@ def make_app(
         model: str = model_id
         messages: list[Message]
         stream: bool = False
+        # Client-side image framing (kairu UI slider). Not a model knob —
+        # harnesses force it into image tool args. One of: landscape|square|portrait.
+        image_aspect: str | None = None
 
     @app.get("/v1/models")
     async def list_models():
@@ -99,6 +102,9 @@ def make_app(
         created = int(time.time())
 
         agent = agent_factory()
+        # Free-form request knobs for harness filters (e.g. kairu image aspect).
+        if req.image_aspect is not None:
+            agent.image_aspect = req.image_aspect
 
         last_user_idx = max(
             (i for i, m in enumerate(req.messages) if m.role == "user"),

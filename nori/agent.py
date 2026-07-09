@@ -1,8 +1,10 @@
 import asyncio
+import copy
 import json
 import logging
 import time
 import uuid
+from typing import Callable
 
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionMessage
@@ -53,6 +55,8 @@ class Agent:
         run_timeout: float | None = _UNSET,
         scratchpad: Scratchpad | None = None,
         output_format: OutputFormat = OutputFormat.TEXT,
+        tool_args_filter: Callable[[str, dict], dict] | None = None,
+        tool_schema_filter: Callable[[str, dict], dict] | None = None,
     ):
         _d = config.get_defaults()
         model = model or _d.model
@@ -104,6 +108,10 @@ class Agent:
         self._checkpoint = checkpoint
         self._register_tools(tools, scratchpad, self_modify, _d)
         self._register_deferred_tools(deferred_tools, show_tool_stubs, _d)
+        # Optional hooks: rewrite tool args at invoke time, and/or strip/mutate
+        # schemas before they are sent to the model (e.g. force client-side knobs).
+        self.tool_args_filter = tool_args_filter
+        self.tool_schema_filter = tool_schema_filter
         self.tool_timeout: float | None = tool_timeout
         self.run_timeout: float | None = run_timeout
         self._run_start: float | None = None
@@ -383,6 +391,8 @@ class Agent:
             run_timeout=self.run_timeout,
             scratchpad=self._scratchpad,
             output_format=self.output_format,
+            tool_args_filter=self.tool_args_filter,
+            tool_schema_filter=self.tool_schema_filter,
         )
 
     async def __call__(self, task: str, reason: str = "") -> str:
@@ -520,7 +530,13 @@ class Agent:
         return t.schema["function"]["name"]
 
     def _tool_schemas(self) -> list[dict]:
-        schemas = [t.schema for t in self._tools.values()]
+        schemas = []
+        for t in self._tools.values():
+            schema = t.schema
+            if self.tool_schema_filter is not None:
+                name = self._tool_name(t)
+                schema = self.tool_schema_filter(name, copy.deepcopy(schema))
+            schemas.append(schema)
         if self._show_tool_stubs and self._deferred_tools:
             schemas.append(self._expand_tool_schema())
         return schemas
@@ -613,6 +629,8 @@ class Agent:
         self._permissions.check(tc.function.name)
         fn = self._tools[tc.function.name]
         args = json.loads(tc.function.arguments)
+        if self.tool_args_filter is not None:
+            args = self.tool_args_filter(tc.function.name, args)
         reason = args.get("reason", "")
         tool_span_id = uuid.uuid4().hex[:8]
         tool_call_id = tool_span_id[:4]

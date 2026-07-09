@@ -88,7 +88,7 @@ class Agent:
         tool_args_filter: Callable[[str, dict], dict] | None = None,
         tool_schema_filter: Callable[[str, dict], dict] | None = None,
         require_no_tools_ack: bool = False,
-        no_tools_ack_max: int = 2,
+        no_tools_ack_max: int = 3,
     ):
         _d = config.get_defaults()
         model = model or _d.model
@@ -989,18 +989,20 @@ class Agent:
                     self.on_assistant_content(message.content)
                     self._pending_final_content = message.content
 
+                self._no_tools_challenge_count += 1
+                # After N failed no-tool turns (no real call, no NO_TOOL_CALLS), stop
+                # challenging so we don't burn tokens forever.
                 if self._no_tools_challenge_count >= self.no_tools_ack_max:
                     logger.warning(
-                        "no_tools_ack_forced agent=%s challenges=%d",
+                        "no_tools_ack_forced agent=%s attempts=%d",
                         self.name, self._no_tools_challenge_count,
                     )
                     result = self._pending_final_content or (message.content or "")
                     return await self._finish_without_tools_async(result)
 
-                self._no_tools_challenge_count += 1
                 logger.debug(
-                    "no_tools_ack_challenge agent=%s n=%d",
-                    self.name, self._no_tools_challenge_count,
+                    "no_tools_ack_challenge agent=%s n=%d/%d",
+                    self.name, self._no_tools_challenge_count, self.no_tools_ack_max,
                 )
                 self._history.append({"role": "user", "content": _NO_TOOL_CALLS_ACK_MESSAGE})
                 continue

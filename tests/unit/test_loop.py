@@ -252,18 +252,19 @@ async def test_require_no_tools_ack_skipped_without_tools():
 
 
 async def test_require_no_tools_ack_forced_after_max_challenges():
+    """Three failed no-tool turns → force exit (no endless challenges)."""
     agent = Agent(
         name="T",
         model=Model(id="grok-4.3", api_key="test-key"),
         tools=[get_weather],
         require_no_tools_ack=True,
-        no_tools_ack_max=2,
+        no_tools_ack_max=3,
         max_turns=10,
     )
     agent._complete = AsyncMock(side_effect=[
-        make_text_message("one"),
-        make_text_message("two"),
-        make_text_message("three"),  # third no-tool after 2 challenges → force exit
+        make_text_message("one"),    # fail 1 → challenge
+        make_text_message("two"),    # fail 2 → challenge
+        make_text_message("three"),  # fail 3 → force exit
     ])
     result = await agent.run("hi")
     assert result == "three"

@@ -59,7 +59,7 @@ def make_app(
     from fastapi import FastAPI
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import StreamingResponse
-    from pydantic import BaseModel
+    from pydantic import BaseModel, ConfigDict
 
     import os
     app = FastAPI(title="nori-chatbot", docs_url=None, redoc_url=None)
@@ -81,18 +81,17 @@ def make_app(
         role: str
         content: str
 
+    # Core OpenAI-compat fields only. Any additional JSON keys are accepted and
+    # stamped onto the agent for harness hooks (tool filters, apply_request_knobs).
+    # Nori does not interpret product-specific knobs.
+    _CHAT_CORE_FIELDS = frozenset({"model", "messages", "stream"})
+
     class ChatRequest(BaseModel):
+        model_config = ConfigDict(extra="allow")
+
         model: str = model_id
         messages: list[Message]
         stream: bool = False
-        # Client-side image framing (kairu UI slider). Not a model knob —
-        # harnesses force it into image tool args. One of: landscape|square|portrait.
-        image_aspect: str | None = None
-        # Client-side pic count (kairu UI): "auto" | 0 | 1 | 2 | 3 | 4 | 5.
-        # Harness forces tool behavior (text-only / exact N calls / free choice).
-        image_count: str | int | None = None
-        # Per-chat personality pack id (kairu: girlfriend|hotwife|bi).
-        personality: str | None = None
 
     @app.get("/v1/models")
     async def list_models():
@@ -107,14 +106,12 @@ def make_app(
         created = int(time.time())
 
         agent = agent_factory()
-        # Free-form request knobs for harness filters (e.g. kairu image aspect).
-        if req.image_aspect is not None:
-            agent.image_aspect = req.image_aspect
-        if req.image_count is not None:
-            agent.image_count = req.image_count
-        if req.personality is not None:
-            agent.personality = req.personality
-        # Optional harness hook (rebuild system prompt, etc.).
+        # Generic: stamp non-core request fields onto the agent so harnesses can
+        # read them in tool_args_filter / apply_request_knobs without nori knowing
+        # product-specific names.
+        for key, value in req.model_dump(exclude_none=True).items():
+            if key not in _CHAT_CORE_FIELDS:
+                setattr(agent, key, value)
         apply_knobs = getattr(agent, "apply_request_knobs", None)
         if callable(apply_knobs):
             apply_knobs(req)

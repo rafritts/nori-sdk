@@ -88,6 +88,9 @@ def make_app(
         # Client-side image framing (kairu UI slider). Not a model knob —
         # harnesses force it into image tool args. One of: landscape|square|portrait.
         image_aspect: str | None = None
+        # Client-side pic count (kairu UI): "auto" | 0 | 1 | 2 | 3 | 4 | 5.
+        # Harness forces tool behavior (text-only / exact N calls / free choice).
+        image_count: str | int | None = None
         # Per-chat personality pack id (kairu: girlfriend|hotwife|bi).
         personality: str | None = None
 
@@ -107,6 +110,8 @@ def make_app(
         # Free-form request knobs for harness filters (e.g. kairu image aspect).
         if req.image_aspect is not None:
             agent.image_aspect = req.image_aspect
+        if req.image_count is not None:
+            agent.image_count = req.image_count
         if req.personality is not None:
             agent.personality = req.personality
         # Optional harness hook (rebuild system prompt, etc.).

@@ -18,6 +18,17 @@ result = await agent.run("What files are in /tmp?")
 
 ---
 
+## User-facing text during tool use
+
+While tools are running, free-form assistant `content` is **not** streamed to the user. Instead:
+
+1. Each tool schema includes an optional **`update_for_user`** string (one sentence). When present, it is delivered via `on_assistant_content` as that tool starts.
+2. When the model stops calling tools after at least one tool ran, nori injects a system turn (*“Provide the user with a final output”*) and completes once more with `tool_choice="none"`. That reply is the user-facing final answer.
+
+Runs that never call tools behave as before: the no-tool assistant message is the final reply.
+
+---
+
 ## Constructor parameters
 
 | Parameter | Type | Default | Description |

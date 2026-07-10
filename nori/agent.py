@@ -42,6 +42,22 @@ _NO_TOOL_CALLS_ACK_MESSAGE = (
     f"If you intentionally used no tools, reply with exactly: {_NO_TOOL_CALLS_SENTINEL}"
 )
 
+# After tools finish, force one dedicated user-facing reply turn (tool_choice=none).
+_FINAL_OUTPUT_MESSAGE = (
+    "[System] Tools have finished. Provide the user with a final output now. "
+    "Write the complete user-facing reply. Do not call tools."
+)
+
+# Optional per-tool status shown while tools run (not the full reply).
+_UPDATE_FOR_USER_SCHEMA = {
+    "type": "string",
+    "description": (
+        "Optional one-sentence status update for the user while this tool runs. "
+        "Omit if nothing useful to say. Do not put your full reply here — "
+        "a separate final-output turn follows after tools finish."
+    ),
+}
+
 
 def _is_no_tools_ack(text: str | None) -> bool:
     """True when the model is confirming it intentionally called no tools."""
@@ -192,6 +208,9 @@ class Agent:
         self._no_tools_challenge_count = 0
         # True once any real tool ran this run — skip the NO_TOOL_CALLS gate after that.
         self._tools_used_this_run = False
+        # After tools stop: inject FINAL_OUTPUT_MESSAGE, then one tool_choice=none turn.
+        self._awaiting_final_output = False
+        self._final_output_done = False
         # Prose already flushed via on_assistant_content this run (dedupe repeats).
         self._emitted_assistant_content: list[str] = []
         self._run_start: float | None = None
@@ -415,6 +434,19 @@ class Agent:
             props["summary"] = {"type": "string", "description": "One-line narration summary of what this tool call found or did. Be specific: include key values, filenames, counts, or outcomes — not just 'read file' or 'ran command'."}
         if "summary" not in required:
             required.append("summary")
+        if "update_for_user" not in props:
+            props["update_for_user"] = dict(_UPDATE_FOR_USER_SCHEMA)
+        return schema
+
+    @staticmethod
+    def _inject_update_for_user_into_schema(schema: dict) -> dict:
+        """Ensure every tool schema exposes optional update_for_user (not required)."""
+        params = schema.get("function", {}).get("parameters", {})
+        if not isinstance(params, dict):
+            return schema
+        props = params.setdefault("properties", {})
+        if "update_for_user" not in props:
+            props["update_for_user"] = dict(_UPDATE_FOR_USER_SCHEMA)
         return schema
 
     # ── Tool interface (Agent as a tool) ─────────────────────────────────────
@@ -635,10 +667,11 @@ class Agent:
     def _tool_schemas(self) -> list[dict]:
         schemas = []
         for t in self._tools.values():
-            schema = t.schema
+            schema = copy.deepcopy(t.schema)
             if self.tool_schema_filter is not None:
                 name = self._tool_name(t)
-                schema = self.tool_schema_filter(name, copy.deepcopy(schema))
+                schema = self.tool_schema_filter(name, schema)
+            schema = self._inject_update_for_user_into_schema(schema)
             schemas.append(schema)
         if self._show_tool_stubs and self._deferred_tools:
             schemas.append(self._expand_tool_schema())
@@ -734,6 +767,10 @@ class Agent:
         args = json.loads(tc.function.arguments)
         if self.tool_args_filter is not None:
             args = self.tool_args_filter(tc.function.name, args)
+        # User-facing status while tools run — not free-form assistant content.
+        update = args.pop("update_for_user", None)
+        if isinstance(update, str) and update.strip():
+            self._emit_assistant_content(update.strip())
         reason = args.get("reason", "")
         tool_span_id = uuid.uuid4().hex[:8]
         tool_call_id = tool_span_id[:4]
@@ -808,8 +845,11 @@ class Agent:
         kwargs: dict = {**self._model.completion_kwargs(), "messages": messages}
         if self._tools:
             kwargs["tools"] = self._tool_schemas()
+            # Final-output turn: text only — no more tools.
+            if self._awaiting_final_output:
+                kwargs["tool_choice"] = "none"
             # Pin tool_choice while force_tool is active (e.g. user asked for a pic).
-            if self._force_tool_active():
+            elif self._force_tool_active():
                 names = {
                     s.get("function", {}).get("name")
                     for s in kwargs["tools"]
@@ -923,6 +963,8 @@ class Agent:
         self._pending_final_content = None
         self._no_tools_challenge_count = 0
         self._tools_used_this_run = False
+        self._awaiting_final_output = False
+        self._final_output_done = False
         self._emitted_assistant_content = []
         self._trace_id = None
         self._span_id = None
@@ -1021,9 +1063,23 @@ class Agent:
         self._pending_final_content = None
         self._no_tools_challenge_count = 0
         self._tools_used_this_run = False
+        self._awaiting_final_output = False
+        self._final_output_done = False
         self._emitted_assistant_content = []
         while True:
-            if self._max_turns is not None and self._turn_count >= self._max_turns:
+            # Allow one extra completion for the forced final-output pass after tools.
+            at_limit = self._max_turns is not None and self._turn_count >= self._max_turns
+            if (
+                at_limit
+                and self._tools_used_this_run
+                and not self._final_output_done
+                and not self._awaiting_final_output
+            ):
+                # Hit the ceiling mid-run after tools: still take the final-output turn.
+                logger.debug("final_output_pass_at_max_turns agent=%s", self.name)
+                self._awaiting_final_output = True
+                self._history.append({"role": "user", "content": _FINAL_OUTPUT_MESSAGE})
+            if at_limit and not self._awaiting_final_output:
                 raise MaxTurnsExceeded(f"Reached max_turns={self._max_turns}")
 
             message = await self._complete(self._history)
@@ -1039,25 +1095,43 @@ class Agent:
             if self._checkpoint and self._turn_count % self._checkpoint.every == 0:
                 await self._run_checkpoint()
 
-            if message.tool_calls:
-                # Prose on a tool-call turn is user-visible immediately (before tools run).
-                # Keep it as pending so a later empty/ack turn still has a return value.
+            # Forced final-output turn (tool_choice=none) after tools finished.
+            if self._awaiting_final_output:
+                self._awaiting_final_output = False
+                self._final_output_done = True
+                if _is_no_tools_ack(message.content):
+                    result = self._pending_final_content or ""
+                    return await self._finish_without_tools_async(result)
                 if message.content:
                     self._emit_assistant_content(message.content)
                     self._pending_final_content = message.content
+                result = self._pending_final_content or (message.content or "")
+                return await self._finish_without_tools_async(result)
+
+            if message.tool_calls:
+                # Free-form message.content on tool turns is not user-facing.
+                # Status goes through optional tool arg update_for_user (emitted
+                # as each tool starts). Full reply comes on the final-output pass.
                 # Real tool use clears the no-tools exit gate for the rest of this run.
                 self._no_tools_challenge_count = 0
                 self._tools_used_this_run = True
+                self._final_output_done = False
                 tool_results = await self._execute_tools(message.tool_calls)
                 self._history.extend(tool_results)
                 continue
 
             # ── No tool calls this turn ──────────────────────────────────────
+            # After real tools ran, force one dedicated final-output turn rather
+            # than treating this (often empty or re-caption) reply as the answer.
+            if self._tools_used_this_run and not self._final_output_done:
+                logger.debug("final_output_pass agent=%s", self.name)
+                self._awaiting_final_output = True
+                self._history.append({"role": "user", "content": _FINAL_OUTPUT_MESSAGE})
+                continue
+
             # Optional gate: when tools exist and require_no_tools_ack is on, the
             # model must either call tools or explicitly say NO_TOOL_CALLS before
             # we end the run. Stops "tool call as prose" from counting as done.
-            # After real tools already ran this run, skip the gate — the next
-            # no-tool turn is the legitimate final reply (don't burn another turn).
             if self.require_no_tools_ack and self._tools and not self._tools_used_this_run:
                 if _is_no_tools_ack(message.content):
                     # force_tool active → cannot opt out with NO_TOOL_CALLS.
@@ -1110,9 +1184,8 @@ class Agent:
                 self._history.append({"role": "user", "content": self.no_tools_ack_message})
                 continue
 
-            # Default exit: no tool calls (or tools already used this run).
-            # Dedup so a post-tool re-caption isn't shown twice. Never surface
-            # the NO_TOOL_CALLS sentinel even if the model still emits it.
+            # Default exit: no tool calls and no tools used this run.
+            # Never surface the NO_TOOL_CALLS sentinel even if the model still emits it.
             if _is_no_tools_ack(message.content):
                 result = self._pending_final_content or ""
                 return await self._finish_without_tools_async(result)

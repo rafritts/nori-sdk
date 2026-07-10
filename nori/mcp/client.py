@@ -52,6 +52,7 @@ class MCPTool:
     async def __call__(self, **kwargs) -> str:
         kwargs.pop("reason", None)
         kwargs.pop("summary", None)
+        kwargs.pop("update_for_user", None)
         result = await self._session.call_tool(self._remote_name, kwargs)
         return _result_to_text(result)
 

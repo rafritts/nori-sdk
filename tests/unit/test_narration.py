@@ -42,6 +42,7 @@ async def test_narration_false_does_not_fire():
     agent.narration = False
     agent._complete = AsyncMock(side_effect=[
         make_tool_call_message("spy_tool", {"city": "Austin", "reason": "checking"}),
+        make_text_message(""),
         make_text_message(),
     ])
     await agent.run("go")
@@ -62,13 +63,14 @@ async def test_on_narration_fires_before_tool_execution():
     agent.on_narration = lambda s: order.append("narration")
     agent._complete = AsyncMock(side_effect=[
         make_tool_call_message("ordered_tool", {"x": "a", "reason": "r"}),
+        make_text_message(""),
         make_text_message(),
     ])
     await agent.run("go")
     assert order.index("narration") < order.index("tool")
 
 
-async def test_response_content_delivered_before_tool_executes():
+async def test_update_for_user_delivered_before_tool_executes():
     order = []
 
     @tool
@@ -80,21 +82,23 @@ async def test_response_content_delivered_before_tool_executes():
     agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"), tools=[ordered_tool])
     agent.narration = True
     agent.on_narration = lambda s: order.append(("response", s))
+    agent.on_assistant_content = lambda s: order.append(("update", s))
     agent._complete = AsyncMock(side_effect=[
         make_tool_call_message(
-            "ordered_tool", {"x": "a", "reason": "r"}, content="Here is my answer, now I'll act."
+            "ordered_tool",
+            {"x": "a", "reason": "r", "update_for_user": "Checking now."},
         ),
-        make_text_message(),
+        make_text_message(""),
+        make_text_message("Done."),
     ])
     await agent.run("go")
 
-    # The model's text response must be delivered before the tool runs.
-    response_idx = next(
+    update_idx = next(
         i for i, e in enumerate(order)
-        if isinstance(e, tuple) and "Here is my answer" in e[1]
+        if isinstance(e, tuple) and e[0] == "update" and "Checking now" in e[1]
     )
     tool_idx = order.index("tool")
-    assert response_idx < tool_idx
+    assert update_idx < tool_idx
 
 
 async def test_default_format_includes_tool_name_and_reason():
@@ -104,6 +108,7 @@ async def test_default_format_includes_tool_name_and_reason():
     agent.on_narration = lambda s: fired.append(s)
     agent._complete = AsyncMock(side_effect=[
         make_tool_call_message("spy_tool", {"city": "NYC", "reason": "need weather"}),
+        make_text_message(""),
         make_text_message(),
     ])
     await agent.run("go")
@@ -118,28 +123,33 @@ async def test_narrator_prefix_prepended():
     agent.on_narration = lambda s: fired.append(s)
     agent._complete = AsyncMock(side_effect=[
         make_tool_call_message("spy_tool", {"city": "LA", "reason": "r"}),
+        make_text_message(""),
         make_text_message(),
     ])
     await agent.run("go")
     assert any(s.startswith(">> ") for s in fired)
 
 
-async def test_narration_from_text_content():
-    """Default on_assistant_content routes mid-loop prose into narration."""
+async def test_narration_from_update_for_user():
+    """Default on_assistant_content routes update_for_user into narration."""
     fired = []
     agent = make_agent()
     agent.narration = True
     agent.on_narration = lambda s: fired.append(s)
     agent._complete = AsyncMock(side_effect=[
-        make_tool_call_message("spy_tool", {"city": "LA", "reason": "r"}, content="I'll check the weather."),
-        make_text_message(),
+        make_tool_call_message(
+            "spy_tool",
+            {"city": "LA", "reason": "r", "update_for_user": "I'll check the weather."},
+        ),
+        make_text_message(""),
+        make_text_message("Sunny."),
     ])
     await agent.run("go")
     assert any("I'll check the weather." in s for s in fired)
 
 
-async def test_on_assistant_content_receives_each_text_block():
-    """Each turn's text is delivered as it arrives — including the final turn."""
+async def test_on_assistant_content_receives_update_and_final():
+    """update_for_user during tools + final-output pass content."""
     prose = []
     narrated = []
     agent = make_agent()
@@ -148,8 +158,11 @@ async def test_on_assistant_content_receives_each_text_block():
     agent.on_assistant_content = lambda s: prose.append(s)
     agent._complete = AsyncMock(side_effect=[
         make_tool_call_message(
-            "spy_tool", {"city": "LA", "reason": "r"}, content="I'll check the weather."
+            "spy_tool",
+            {"city": "LA", "reason": "r", "update_for_user": "I'll check the weather."},
+            content="long freeform that must not stream",
         ),
+        make_text_message(""),
         make_text_message("Sunny in LA."),
     ])
     result = await agent.run("go")
@@ -174,9 +187,11 @@ async def test_on_assistant_content_fires_before_tool():
     agent.on_assistant_content = lambda s: order.append(("prose", s))
     agent._complete = AsyncMock(side_effect=[
         make_tool_call_message(
-            "ordered_tool", {"x": "a", "reason": "r"}, content="Acting now."
+            "ordered_tool",
+            {"x": "a", "reason": "r", "update_for_user": "Acting now."},
         ),
-        make_text_message(),
+        make_text_message(""),
+        make_text_message("Done."),
     ])
     await agent.run("go")
     prose_idx = next(i for i, e in enumerate(order) if isinstance(e, tuple) and e[0] == "prose")
@@ -190,6 +205,7 @@ async def test_custom_callback_receives_string():
     agent.on_narration = lambda s: received.append(s)
     agent._complete = AsyncMock(side_effect=[
         make_tool_call_message("spy_tool", {"city": "NY", "reason": "r"}),
+        make_text_message(""),
         make_text_message(),
     ])
     await agent.run("go")

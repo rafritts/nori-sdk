@@ -59,7 +59,7 @@ async def test_reason_passed_as_hint():
         final_resp = MagicMock(choices=[MagicMock(message=make_text_message("All done."))])
 
         mock_client.chat.completions.create = AsyncMock(
-            side_effect=[main_resp, summarizer_resp, final_resp]
+            side_effect=[main_resp, summarizer_resp, MagicMock(choices=[MagicMock(message=make_text_message(""))]), final_resp]
         )
         MockOpenAI.return_value = mock_client
 
@@ -81,7 +81,7 @@ async def test_summarized_content_appended():
         summarizer_resp = make_summarizer_response("THE SUMMARY")
         final_resp = MagicMock(choices=[MagicMock(message=make_text_message("Done."))])
         mock_client.chat.completions.create = AsyncMock(
-            side_effect=[main_resp, summarizer_resp, final_resp]
+            side_effect=[main_resp, summarizer_resp, MagicMock(choices=[MagicMock(message=make_text_message(""))]), final_resp]
         )
         MockOpenAI.return_value = mock_client
 
@@ -100,15 +100,15 @@ async def test_summarize_output_false_skips_summarizer():
         ))])
         final_resp = MagicMock(choices=[MagicMock(message=make_text_message("Done."))])
         mock_client.chat.completions.create = AsyncMock(
-            side_effect=[main_resp, final_resp]
+            side_effect=[main_resp, MagicMock(choices=[MagicMock(message=make_text_message(""))]), final_resp]
         )
         MockOpenAI.return_value = mock_client
 
         agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"), tools=[raw_tool])
         await agent.run("go")
 
-        # Only 2 calls: main loop + final response (no summarizer call)
-        assert mock_client.chat.completions.create.call_count == 2
+        # tool + stop + final-output (no summarizer call)
+        assert mock_client.chat.completions.create.call_count == 3
         tool_msg = next(m for m in agent._history if m.get("role") == "tool")
         assert tool_msg["content"] == "raw_result"
 
@@ -121,11 +121,11 @@ async def test_agent_level_summarize_false_skips_all():
         ))])
         final_resp = MagicMock(choices=[MagicMock(message=make_text_message("Done."))])
         mock_client.chat.completions.create = AsyncMock(
-            side_effect=[main_resp, final_resp]
+            side_effect=[main_resp, MagicMock(choices=[MagicMock(message=make_text_message(""))]), final_resp]
         )
         MockOpenAI.return_value = mock_client
 
         agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"), tools=[big_output])
         await agent.run("go")
 
-        assert mock_client.chat.completions.create.call_count == 2
+        assert mock_client.chat.completions.create.call_count == 3

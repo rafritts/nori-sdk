@@ -51,6 +51,7 @@ async def test_tool_call_logged_at_debug(caplog):
             MagicMock(choices=[MagicMock(message=make_tool_call_message(
                 "sample_tool", {"x": "val", "reason": "r"}
             ))], usage=usage),
+            MagicMock(choices=[MagicMock(message=make_text_message(""))], usage=usage),
             MagicMock(choices=[MagicMock(message=make_text_message())], usage=usage),
         ])
         MockOpenAI.return_value = mock_client
@@ -78,6 +79,7 @@ async def test_tool_result_stored_in_log(caplog):
             MagicMock(choices=[MagicMock(message=make_tool_call_message(
                 "sample_tool", {"x": "val", "reason": "r"}
             ))], usage=usage),
+            MagicMock(choices=[MagicMock(message=make_text_message(""))], usage=usage),
             MagicMock(choices=[MagicMock(message=make_text_message())], usage=usage),
         ])
         MockOpenAI.return_value = mock_client
@@ -103,6 +105,7 @@ async def test_on_tool_result_callback_fires(caplog):
             MagicMock(choices=[MagicMock(message=make_tool_call_message(
                 "sample_tool", {"x": "val", "reason": "r"}
             ))], usage=usage),
+            MagicMock(choices=[MagicMock(message=make_text_message(""))], usage=usage),
             MagicMock(choices=[MagicMock(message=make_text_message())], usage=usage),
         ])
         MockOpenAI.return_value = mock_client
@@ -130,6 +133,7 @@ async def test_narration_logged_at_debug(caplog):
             MagicMock(choices=[MagicMock(message=make_tool_call_message(
                 "narr_tool", {"x": "v", "reason": "my reason"}
             ))], usage=usage),
+            MagicMock(choices=[MagicMock(message=make_text_message(""))], usage=usage),
             MagicMock(choices=[MagicMock(message=make_text_message())], usage=usage),
         ])
         MockOpenAI.return_value = mock_client
@@ -182,6 +186,7 @@ async def test_narration_summary_fires_after_run():
             MagicMock(choices=[MagicMock(message=make_tool_call_message(
                 "sample_tool", {"x": "v", "reason": "r"}
             ))], usage=usage),
+            MagicMock(choices=[MagicMock(message=make_text_message(""))], usage=usage),
             MagicMock(choices=[MagicMock(message=make_text_message())], usage=usage),
         ])
         MockOpenAI.return_value = mock_client

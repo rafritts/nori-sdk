@@ -24,11 +24,19 @@ def tool(_fn: Callable = None, *, summarize_output: bool = True):
         properties = {
             "reason": {"type": "string", "description": "Your reason for calling this tool."},
             "summary": {"type": "string", "description": "One-line narration summary of what this tool call found or did. Be specific: include key values, filenames, counts, or outcomes — not just 'read file' or 'ran command'."},
+            "update_for_user": {
+                "type": "string",
+                "description": (
+                    "Optional one-sentence status update for the user while this tool runs. "
+                    "Omit if nothing useful to say. Do not put your full reply here — "
+                    "a separate final-output turn follows after tools finish."
+                ),
+            },
         }
         required = ["reason", "summary"]
 
         for name, param in sig.parameters.items():
-            if name in ("reason", "summary"):
+            if name in ("reason", "summary", "update_for_user"):
                 continue
             properties[name] = {"type": _TYPE_MAP.get(hints.get(name), "string")}
             if param.default is inspect.Parameter.empty:
@@ -38,7 +46,7 @@ def tool(_fn: Callable = None, *, summarize_output: bool = True):
             logger.warning("@tool '%s' has no docstring — the model will have no description of what it does.", fn.__name__)
         else:
             for name in sig.parameters:
-                if name in ("reason", "summary"):
+                if name in ("reason", "summary", "update_for_user"):
                     continue
                 if name not in fn.__doc__:
                     logger.warning("@tool '%s': parameter '%s' is not mentioned in the docstring.", fn.__name__, name)
@@ -61,12 +69,14 @@ def tool(_fn: Callable = None, *, summarize_output: bool = True):
             async def wrapper(*args, **kwargs):
                 kwargs.pop("reason", None)
                 kwargs.pop("summary", None)
+                kwargs.pop("update_for_user", None)
                 return await fn(*args, **kwargs)
         else:
             @functools.wraps(fn)
             async def wrapper(*args, **kwargs):
                 kwargs.pop("reason", None)
                 kwargs.pop("summary", None)
+                kwargs.pop("update_for_user", None)
                 return fn(*args, **kwargs)
 
         wrapper.schema = schema

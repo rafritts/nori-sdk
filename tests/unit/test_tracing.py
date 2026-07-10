@@ -59,6 +59,7 @@ def make_agent(**kwargs):
     agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"), tools=[spy_tool, spy_tool2], **kwargs)
     agent._complete = AsyncMock(side_effect=[
         make_tool_call_message("spy_tool", {"city": "NYC", "reason": "checking"}),
+        make_text_message(""),
         make_text_message(),
     ])
     return agent
@@ -91,6 +92,7 @@ async def test_call_id_is_first_4_chars_of_span_id():
             "spy_tool", {"city": "NYC", "reason": "r1"},
             "spy_tool2", {"host": "prod", "reason": "r2"},
         ),
+        make_text_message(""),
         make_text_message(),
     ])
     await agent.run("go")
@@ -133,6 +135,7 @@ async def test_call_id_absent_on_single_tool_call():
     agent.on_narration = lambda s: fired.append(s)
     agent._complete = AsyncMock(side_effect=[
         make_tool_call_message("spy_tool", {"city": "NYC", "reason": "r"}),
+        make_text_message(""),
         make_text_message(),
     ])
     await agent.run("go")
@@ -150,6 +153,7 @@ async def test_call_id_present_on_parallel_tool_calls():
             "spy_tool", {"city": "NYC", "reason": "r1"},
             "spy_tool2", {"host": "prod", "reason": "r2"},
         ),
+        make_text_message(""),
         make_text_message(),
     ])
     await agent.run("go")
@@ -178,6 +182,7 @@ async def test_narration_call_id_opt_out():
             "spy_tool", {"city": "NYC", "reason": "r1"},
             "spy_tool2", {"host": "prod", "reason": "r2"},
         ),
+        make_text_message(""),
         make_text_message(),
     ])
     await agent.run("go")

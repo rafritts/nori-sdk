@@ -54,6 +54,8 @@ async def test_update_system_prompt_changes_system_prompt():
                 "update_system_prompt",
                 {"new_prompt": "New instructions.", "reason": "updating"},
             ))], usage=MagicMock(prompt_tokens=5, completion_tokens=3)),
+            MagicMock(choices=[MagicMock(message=make_text_message(""))],
+                      usage=MagicMock(prompt_tokens=5, completion_tokens=3)),
             MagicMock(choices=[MagicMock(message=make_text_message())],
                       usage=MagicMock(prompt_tokens=5, completion_tokens=3)),
         ])

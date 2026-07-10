@@ -52,7 +52,8 @@ async def test_tool_call_dispatched():
     agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"), tools=[spy_tool])
     agent._complete = AsyncMock(side_effect=[
         make_tool_call_message("spy_tool", {"city": "Austin", "reason": "checking weather"}),
-        make_text_message("It's sunny."),
+        make_text_message(""),  # stop calling tools
+        make_text_message("It's sunny."),  # forced final-output pass
     ])
     await agent.run("Weather?")
     assert called_with["city"] == "Austin"
@@ -67,6 +68,7 @@ async def test_tool_result_appended_to_history():
     agent = Agent(name="T", model=Model(id="grok-4.3", api_key="test-key"), tools=[my_tool])
     agent._complete = AsyncMock(side_effect=[
         make_tool_call_message("my_tool", {"x": "a", "reason": "r"}),
+        make_text_message(""),
         make_text_message("Done."),
     ])
     await agent.run("Go")
@@ -85,10 +87,11 @@ async def test_loop_iterates_until_no_tool_calls():
     agent._complete = AsyncMock(side_effect=[
         make_tool_call_message("noop", {"x": "1", "reason": "r"}, "c1"),
         make_tool_call_message("noop", {"x": "2", "reason": "r"}, "c2"),
+        make_text_message(""),
         make_text_message("Done."),
     ])
     result = await agent.run("Go")
-    assert agent._complete.call_count == 3
+    assert agent._complete.call_count == 4
     assert result == "Done."
 
 
@@ -120,7 +123,11 @@ async def test_parallel_tools_both_called():
     multi.content = None
     multi.tool_calls = [tc_a, tc_b]
 
-    agent._complete = AsyncMock(side_effect=[multi, make_text_message("done")])
+    agent._complete = AsyncMock(side_effect=[
+        multi,
+        make_text_message(""),
+        make_text_message("done"),
+    ])
     await agent.run("go")
     assert "a" in results and "b" in results
 
@@ -149,7 +156,11 @@ async def test_parallel_results_both_appended():
     multi.content = None
     multi.tool_calls = [tc1, tc2]
 
-    agent._complete = AsyncMock(side_effect=[multi, make_text_message("done")])
+    agent._complete = AsyncMock(side_effect=[
+        multi,
+        make_text_message(""),
+        make_text_message("done"),
+    ])
     await agent.run("go")
     tool_msgs = [m for m in agent._history if m.get("role") == "tool"]
     contents = {m["content"] for m in tool_msgs}
@@ -211,7 +222,7 @@ async def test_require_no_tools_ack_gates_exit():
 
 
 async def test_require_no_tools_ack_allows_real_tool_after_prose():
-    """Fake tool prose → challenge → real tool call → final (no second ack turn)."""
+    """Fake tool prose → challenge → real tool call → stop tools → final-output pass."""
     called = {}
 
     @tool
@@ -230,13 +241,14 @@ async def test_require_no_tools_ack_allows_real_tool_after_prose():
     agent._complete = AsyncMock(side_effect=[
         make_text_message("tool call spy_tool with city Austin — here you go"),
         make_tool_call_message("spy_tool", {"city": "Austin", "reason": "r"}),
+        make_text_message(""),
         make_text_message("It's sunny."),
     ])
     result = await agent.run("pic?")
     assert called["city"] == "Austin"
     assert result == "It's sunny."
-    # After a real tool runs, the next no-tool turn is final — no NO_TOOL_CALLS round-trip.
-    assert agent._complete.call_count == 3
+    # After tools: stop turn + forced final-output pass (no NO_TOOL_CALLS round-trip).
+    assert agent._complete.call_count == 4
 
 
 async def test_require_no_tools_ack_skipped_without_tools():
@@ -272,13 +284,8 @@ async def test_require_no_tools_ack_forced_after_max_challenges():
     assert agent._complete.call_count == 3
 
 
-async def test_post_tool_duplicate_caption_not_re_emitted():
-    """Caption on the tool turn must not appear twice when the model re-says it."""
-    caption = (
-        "Sure thing, babe. I've been thinking about you tonight anyway, "
-        "so here's something just for you.\nHope you like it."
-    )
-
+async def test_tool_turn_freeform_content_not_emitted():
+    """Free-form message.content on a tool-call turn is not user-facing."""
     @tool
     def send_pic(prompt: str) -> str:
         """Send a pic."""
@@ -291,25 +298,29 @@ async def test_post_tool_duplicate_caption_not_re_emitted():
         require_no_tools_ack=True,
         max_turns=10,
     )
+    long_caption = (
+        "Sure thing, babe. I've been thinking about you tonight anyway, "
+        "so here's something just for you.\nHope you like it."
+    )
     agent._complete = AsyncMock(side_effect=[
         make_tool_call_message(
-            "send_pic", {"prompt": "selfie"}, content=caption,
+            "send_pic", {"prompt": "selfie"}, content=long_caption,
         ),
-        make_text_message(caption),  # model re-emits the same caption
+        make_text_message(""),
+        make_text_message("Hope you like it."),
     ])
     seen = []
     agent.on_assistant_content = lambda t: seen.append(t)
 
     result = await agent.run("pic?")
-    assert seen == [caption]
-    assert result == caption
-    assert agent._complete.call_count == 2
+    assert long_caption not in seen
+    assert seen == ["Hope you like it."]
+    assert result == "Hope you like it."
+    assert agent._complete.call_count == 3
 
 
-async def test_post_tool_empty_keeps_pre_tool_caption():
-    """Empty final turn after tools returns the pre-tool caption."""
-    caption = "Here you go."
-
+async def test_update_for_user_emitted_as_tools_run():
+    """Optional update_for_user on tool args is delivered when the tool starts."""
     @tool
     def send_pic(prompt: str) -> str:
         """Send a pic."""
@@ -319,23 +330,26 @@ async def test_post_tool_empty_keeps_pre_tool_caption():
         name="T",
         model=Model(id="grok-4.3", api_key="test-key"),
         tools=[send_pic],
-        require_no_tools_ack=True,
         max_turns=10,
     )
     agent._complete = AsyncMock(side_effect=[
-        make_tool_call_message("send_pic", {"prompt": "x"}, content=caption),
+        make_tool_call_message(
+            "send_pic",
+            {"prompt": "x", "reason": "r", "update_for_user": "Sending a pic now."},
+        ),
         make_text_message(""),
+        make_text_message("Here you go."),
     ])
     seen = []
     agent.on_assistant_content = lambda t: seen.append(t)
 
     result = await agent.run("pic?")
-    assert seen == [caption]
-    assert result == caption
+    assert seen == ["Sending a pic now.", "Here you go."]
+    assert result == "Here you go."
 
 
-async def test_tools_used_skips_no_tools_ack_gate():
-    """Once tools ran this run, a no-tool final needs no NO_TOOL_CALLS ack."""
+async def test_final_output_pass_after_tools():
+    """After tools stop, inject a final-output prompt and take one more turn."""
     @tool
     def send_pic(prompt: str) -> str:
         """Send a pic."""
@@ -350,11 +364,41 @@ async def test_tools_used_skips_no_tools_ack_gate():
     )
     agent._complete = AsyncMock(side_effect=[
         make_tool_call_message("send_pic", {"prompt": "x"}, content="Sent."),
+        make_text_message("ignored intermediate"),
+        make_text_message("Done."),
+    ])
+    seen = []
+    agent.on_assistant_content = lambda t: seen.append(t)
+    result = await agent.run("pic?")
+    assert result == "Done."
+    assert seen == ["Done."]
+    assert agent._complete.call_count == 3
+    user_msgs = [m["content"] for m in agent._history if m.get("role") == "user"]
+    assert any("final output" in (c or "").lower() for c in user_msgs)
+
+
+async def test_tools_used_skips_no_tools_ack_gate():
+    """Once tools ran this run, no NO_TOOL_CALLS ack — final-output pass instead."""
+    @tool
+    def send_pic(prompt: str) -> str:
+        """Send a pic."""
+        return "ok"
+
+    agent = Agent(
+        name="T",
+        model=Model(id="grok-4.3", api_key="test-key"),
+        tools=[send_pic],
+        require_no_tools_ack=True,
+        max_turns=10,
+    )
+    agent._complete = AsyncMock(side_effect=[
+        make_tool_call_message("send_pic", {"prompt": "x"}, content="Sent."),
+        make_text_message(""),
         make_text_message("Done."),
     ])
     result = await agent.run("pic?")
     assert result == "Done."
-    assert agent._complete.call_count == 2
+    assert agent._complete.call_count == 3
 
 
 async def test_force_tool_rejects_no_tools_ack():
@@ -381,11 +425,12 @@ async def test_force_tool_rejects_no_tools_ack():
             {"prompt": "a selfie", "reason": "r"},
         ),
         make_text_message(""),
+        make_text_message("Pic sent."),
     ])
     result = await agent.run("send a pic")
     assert agent._tools_used_this_run is True
-    assert agent._complete.call_count == 4
-    assert result == "here you go" or result == ""
+    assert agent._complete.call_count == 5
+    assert result == "Pic sent."
 
 
 async def test_custom_no_tools_ack_message_injected():

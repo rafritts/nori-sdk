@@ -116,6 +116,17 @@ def make_app(
         if callable(apply_knobs):
             apply_knobs(req)
 
+        # Normalize conversation id for x-grok-conv-id sticky prompt-cache routing.
+        conv = getattr(agent, "conversation_id", None)
+        if not (isinstance(conv, str) and conv.strip()):
+            for key in ("conversationId", "conv_id", "chat_id"):
+                alt = getattr(agent, key, None)
+                if isinstance(alt, str) and alt.strip():
+                    agent.conversation_id = alt.strip()
+                    break
+        elif isinstance(conv, str):
+            agent.conversation_id = conv.strip()
+
         last_user_idx = max(
             (i for i, m in enumerate(req.messages) if m.role == "user"),
             default=None,
@@ -156,9 +167,14 @@ def make_app(
                         filtered = response_filter(base, agent.tool_calls)
                         extra = _stream_filter_extra(base, filtered)
                     tc = agent.token_counts
-                    logger.debug(
-                        "chat cid=%s turns=%d tokens=%d cost=$%.4f",
-                        cid, agent.turn_count, tc.get("total", tc["prompt"] + tc["completion"]), agent.cost,
+                    logger.info(
+                        "chat cid=%s conv=%s turns=%d tokens=%d cached=%d cost=$%.4f",
+                        cid,
+                        getattr(agent, "conversation_id", None) or "-",
+                        agent.turn_count,
+                        tc.get("total", tc["prompt"] + tc["completion"]),
+                        tc.get("cached", 0),
+                        agent.cost,
                     )
                     queue.put_nowait(("done", extra))
                 except Exception as e:
@@ -202,9 +218,14 @@ def make_app(
             body = f"<think>\n{chr(10).join(narration_lines)}\n</think>\n{body}"
 
         tc = agent.token_counts
-        logger.debug(
-            "chat cid=%s turns=%d tokens=%d cost=$%.4f",
-            cid, agent.turn_count, tc.get("total", tc["prompt"] + tc["completion"]), agent.cost,
+        logger.info(
+            "chat cid=%s conv=%s turns=%d tokens=%d cached=%d cost=$%.4f",
+            cid,
+            getattr(agent, "conversation_id", None) or "-",
+            agent.turn_count,
+            tc.get("total", tc["prompt"] + tc["completion"]),
+            tc.get("cached", 0),
+            agent.cost,
         )
         return _non_stream_response(
             body, cid, created, model_id,

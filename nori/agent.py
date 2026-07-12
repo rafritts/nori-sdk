@@ -221,8 +221,16 @@ class Agent:
         # Chain-of-thought tokens (xAI reasoning models). Billed as output, not
         # included in completion_tokens. See completion_tokens_details.reasoning_tokens.
         self._reasoning_tokens: int = 0
+        # Prompt tokens served from provider cache (subset of prompt_tokens).
+        self._cached_tokens: int = 0
         # Sum of provider-reported cost_in_usd_ticks converted to USD, when present.
         self._api_cost_usd: float | None = None
+        # Optional sticky conversation id for prompt-cache routing (x-grok-conv-id).
+        # Chat harnesses may stamp this from the client request.
+        self.conversation_id: str | None = None
+        # Optional per-run tail (datetime, knobs). Appended after the user prompt so
+        # the system message stays a stable cacheable prefix. Not part of UI history.
+        self.dynamic_context: str | None = None
         self._tool_calls_log: list[dict] = []
         self.auditor = None
         self.narration_call_id: bool = True
@@ -755,6 +763,15 @@ class Agent:
                 }
                 for tc in message.tool_calls
             ]
+        # xAI reasoning models: echo reasoning_content on later turns or multi-turn
+        # prompt cache misses (top miss cause per xAI docs).
+        reasoning = getattr(message, "reasoning_content", None)
+        if reasoning is None:
+            extra = getattr(message, "model_extra", None)
+            if isinstance(extra, dict):
+                reasoning = extra.get("reasoning_content")
+        if isinstance(reasoning, str) and reasoning:
+            d["reasoning_content"] = reasoning
         return d
 
     async def _invoke_tool(self, tc, is_parallel: bool = False) -> dict:
@@ -860,6 +877,10 @@ class Agent:
                         "type": "function",
                         "function": {"name": self.force_tool},
                     }
+        # Sticky routing for xAI prompt cache (and harmless elsewhere).
+        conv_id = getattr(self, "conversation_id", None)
+        if isinstance(conv_id, str) and conv_id.strip():
+            kwargs["extra_headers"] = {"x-grok-conv-id": conv_id.strip()}
         response = await self._client.chat.completions.create(**kwargs)
         if response.usage:
             self._record_usage(response.usage)
@@ -900,6 +921,20 @@ class Agent:
         if rt:
             self._reasoning_tokens += rt
 
+        # Cached prompt tokens (xAI / OpenAI-style prompt_tokens_details).
+        cached = 0
+        pdetails = getattr(usage, "prompt_tokens_details", None)
+        if pdetails is not None:
+            raw_c = (
+                pdetails.get("cached_tokens")
+                if isinstance(pdetails, dict)
+                else getattr(pdetails, "cached_tokens", None)
+            )
+            if isinstance(raw_c, int) and raw_c > 0:
+                cached = raw_c
+        if cached:
+            self._cached_tokens += cached
+
         ticks = getattr(usage, "cost_in_usd_ticks", None)
         if isinstance(ticks, int) and ticks >= 0:
             piece = cost_from_ticks(ticks)
@@ -921,6 +956,7 @@ class Agent:
             "prompt": self._prompt_tokens,
             "completion": self._completion_tokens,
             "reasoning": self._reasoning_tokens,
+            "cached": self._cached_tokens,
             "total": self._prompt_tokens + self._completion_tokens + self._reasoning_tokens,
         }
 
@@ -956,6 +992,7 @@ class Agent:
         self._last_prompt_tokens = 0
         self._completion_tokens = 0
         self._reasoning_tokens = 0
+        self._cached_tokens = 0
         self._api_cost_usd = None
         self._tool_calls_log = []
         self._running_summary = ""
@@ -1020,6 +1057,12 @@ class Agent:
             self._history.append({"role": "user", "content": content})
         else:
             self._history.append({"role": "user", "content": prompt})
+
+        # Per-turn dynamic tail (clock, product knobs) after the user message so
+        # the system prompt remains a stable prefix for provider prompt caching.
+        dyn = getattr(self, "dynamic_context", None)
+        if isinstance(dyn, str) and dyn.strip():
+            self._history.append({"role": "user", "content": dyn.strip()})
 
         _d = config.get_defaults()
         _ctx_server = None

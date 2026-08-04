@@ -18,31 +18,29 @@ Today, if someone has `grok` installed and authenticated but no `XAI_API_KEY`, N
 
 ## Design principle
 
-**Use the CLI for connectivity. Do not use the CLI as an agent, and do not expose it as a Nori tool.**
+**Use the CLI for connectivity only. Zero tools — vendor or Nori.**
 
 | Layer | Who owns it |
 |---|---|
 | Auth / transport to the model | The installed CLI (subscription, OAuth, local login) |
-| Agentic loop, tools, permissions, narration, sandbox | **Nori** |
-| Built-in tools of Grok / Claude / Codex (Bash, Edit, …) | **Disabled** — never invoked on Nori's behalf |
+| Single-shot / multi-turn text completion | **Nori** agent loop (no tool turns) |
+| Built-in tools of Grok / Claude / Codex (Bash, Edit, …) | **Disabled** — `--tools ""` + aggressive system ban |
+| Nori tools / MCP / deferred tools / scratchpad tools | **Forbidden** — Agent construction raises if any are registered |
 
-Nori does **not** wrap `grok` / `claude` / `codex` as tools the model can call (not `Bash`-style, not agent-as-tool). Those CLIs are alternative **model backends**, in the same conceptual slot as `Provider.XAI` or `Provider.BEDROCK`.
-
-After setup, application code is unchanged:
+Nori does **not** wrap `grok` / `claude` / `codex` as tools, and does **not** encode a Nori tool-call envelope through them. Those CLIs are alternative **model backends** for text completion, in the same conceptual slot as `Provider.XAI` or `Provider.BEDROCK`, but **without tool calling**.
 
 ```python
 from nori import Agent, Model, Provider
-from nori.tools import Bash, FileRead, WebSearch
 
+# Text-only. Passing tools=... raises ValueError.
 agent = Agent(
     name="assistant",
     model=Model(id="grok-4.5", provider=Provider.GROK_CLI),
-    tools=[Bash, FileRead, WebSearch],
 )
-await agent.run("Summarize the top-level modules in this repo")
+await agent.run("Explain what a completion backend is in one paragraph")
 ```
 
-The only difference is *how* each completion is obtained.
+If the agent needs tools, use an HTTP provider (`Provider.XAI`, etc.) with an API key.
 
 ---
 
@@ -100,18 +98,20 @@ This is an **internal** seam. Public API stays `Model` + `Provider`; users do no
 
 ### 3. CLI invocation contract
 
-For every Nori completion turn, the CLI is invoked **once**, headless, with **its own agent tools off**. Nori then parses the model reply and, if the reply contains tool calls for *Nori* tools, runs those tools itself and loops.
+For every Nori completion turn, the CLI is invoked **once**, headless, with **all tools off**. The reply is treated as **final text only**. Any `tool_calls` in the payload are stripped and never executed.
 
 #### Shared rules
 
 1. **Resolve binary** via `shutil.which`. If missing, raise a clear error with install/login hints.
-2. **Disable CLI-native tools** so the subprocess is model I/O only, not a nested agent.
-3. **Pass model id** with `-m` / `--model` when set.
-4. **Prefer structured stdout** (`json` / equivalent) over plain text so tool-call intent can be parsed reliably.
-5. **Timeouts** honor `Agent` / config run timeouts (kill the subprocess on cancel/timeout).
-6. **cwd** defaults to the process cwd (same as Nori tools). Optional later: `Model.cli_cwd`.
-7. **stderr** is logged at debug and included in error messages on non-zero exit; it is not mixed into the completion content.
-8. **No API key check** in `Model.__post_init__` for CLI providers (same idea as Bedrock / `http_client`).
+2. **Disable CLI-native tools** (`--tools ""` where available) so the subprocess is model I/O only.
+3. **Inject an aggressive system ban**: no tool calling of any kind — not vendor tools, not Nori tools, not invented tools. Plain text only.
+4. **Agent construction rejects tools**: `tools`, `deferred_tools`, `mcp_servers`, `scratchpad`, `self_modify`, and `force_tool` raise `ValueError` on CLI providers.
+5. **Pass model id** with `-m` / `--model` when set.
+6. **Prefer structured stdout** (`json` / equivalent) over plain text when available; parse for `content` only.
+7. **Timeouts** honor `Agent` / config run timeouts (kill the subprocess on cancel/timeout).
+8. **cwd** defaults to the process cwd. Optional later: `Model.cli_cwd`.
+9. **stderr** is logged at debug and included in error messages on non-zero exit; it is not mixed into the completion content.
+10. **No API key check** in `Model.__post_init__` for CLI providers (same idea as Bedrock / `http_client`).
 
 #### Per-CLI sketch (implementation may adjust flags as CLIs evolve)
 
@@ -158,43 +158,37 @@ CLI headless modes generally take a **single prompt string** (plus optional syst
 
 ```
 [system]
-{system content}
+{TOOLS FORBIDDEN ban}
+{user system content}
 
 [conversation]
 user: ...
 assistant: ...
-tool (id=…, name=…): ...
-user: ...
 
-[nori tools]   # only when tools are non-empty
-You may call Nori tools by replying with ONLY a JSON object of the form:
-{"tool_calls":[{"id":"call_1","name":"Bash","arguments":{"command":"ls"}}]}
-or a final answer:
-{"content":"..." }
-
-Available tools:
-{json schema list}
+[output contract]
+TOOLS ARE BANNED. Plain text only.
 ```
 
-Exact envelope is an implementation detail, but it must be:
+Rules:
 
-- **Deterministic** and covered by unit tests with fixtures
-- **Round-trippable** into `ChatCompletionMessage.tool_calls` / `.content`
-- Prefer **`--json-schema`** (Grok/Claude) when available to constrain the model to the envelope
+- **Never** serialize tool schemas, tool_choice, or a Nori tool envelope
+- **Never** re-emit historical `tool_calls` / `role=tool` messages into the prompt
+- Prefer plain text answers; if the model returns `{"content":"..."}` JSON, take `content` only
+- If the model still emits `tool_calls`, **strip them** and do not execute
 
-Multi-turn Nori history (including prior tool results) is folded into this prompt each turn. The CLI process is **stateless from Nori's perspective** — no reliance on CLI session resume for the agent loop (avoids double history and stuck sessions). Optional future: session reuse for cache/latency; not v1.
+Multi-turn Nori history (user/assistant text only) is folded into this prompt each turn. The CLI process is **stateless from Nori's perspective** — no reliance on CLI session resume for the agent loop. Optional future: session reuse for cache/latency; not v1.
 
 ### 4. Tool calling strategy
 
 | Concern | Behavior |
 |---|---|
-| CLI built-in tools | Always off |
-| Nori tools | Encoded in the prompt (and/or json-schema); model emits structured tool_calls; Nori executes |
-| `tool_choice` | Best-effort: `"none"` → instruct final text only; forced function → instruct that tool; `"auto"` → default envelope |
-| Parallel tool calls | Supported in the JSON envelope if the model emits multiple; same as HTTP path |
-| Images / multimodal | Out of scope for v1 unless a CLI flag is trivial (`codex -i`, etc.) — document as follow-up |
+| CLI built-in tools | Always off (`--tools ""` + system ban) |
+| Nori tools | **Not allowed** — Agent raises if registered; completer drops schemas |
+| `tool_choice` | Ignored on CLI path |
+| Parsed `tool_calls` | Stripped; never executed |
+| Images / multimodal | Out of scope for v1 unless a CLI flag is trivial — document as follow-up |
 
-If parsing fails (model returns prose instead of the envelope), treat the whole stdout as `content` text (graceful degrade), and log a warning. Do not crash the loop.
+If parsing fails (model returns prose), treat the whole stdout as `content` text. Do not crash the loop.
 
 ### 5. Config and errors
 
@@ -329,9 +323,11 @@ Unit (mocked subprocess):
 
 - Binary missing → clear error
 - Argv construction per backend (tools disabled, model flag, output format)
-- Envelope parse: content-only, single tool call, multi tool call, malformed → content fallback
+- Parse: content-only; tool_calls stripped; malformed → content fallback
+- Aggressive no-tools ban present in system + body
 - `Model(provider=Provider.GROK_CLI)` does not require API key
-- Agent loop with fake `CliCompleter`: one tool call then final answer
+- Agent with CLI provider rejects `tools=` / registers empty tool map
+- Agent loop with fake `CliCompleter`: plain text final answer, no tools passed
 
 Integration (optional, `@pytest.mark.integration`, skip if binary absent):
 
@@ -339,7 +335,7 @@ Integration (optional, `@pytest.mark.integration`, skip if binary absent):
 
 ### 7. Docs
 
-- Short section in `docs/getting-started.md` or `docs/agent.md`: “Using installed CLIs instead of API keys”
+- Short section in `docs/getting-started.md` or `docs/agent.md`: “Using installed CLIs instead of API keys” (text-only)
 - Note cost/usage limitations and ToS caveat
 - Codex `-p` ≠ print (avoid footgun in docs)
 
@@ -349,8 +345,7 @@ Integration (optional, `@pytest.mark.integration`, skip if binary absent):
 
 | Phase | Scope |
 |---|---|
-| **v1** | `GROK_CLI` + `CLAUDE_CLI` with tools-disabled headless + JSON envelope tool calling; completer abstraction; unit tests |
-| **v1.1** | `CODEX_CLI` once tool-disable / final-message capture is reliable |
+| **v1** | `GROK_CLI` + `CLAUDE_CLI` + `CODEX_CLI` with **zero tools** (argv + system ban + Agent refuse tools); completer abstraction; unit tests |
 | **Later** | Multimodal pass-through, session reuse / prompt cache, streaming narration from CLI stdout, `cli_path` overrides |
 
 Ship Grok + Claude first — both have clear `-p` and `--tools ""`. Codex follows once the exec path is proven.
@@ -359,18 +354,18 @@ Ship Grok + Claude first — both have clear `-p` and `--tools ""`. Codex follow
 
 ## Open questions
 
-1. **Codex tool suppression** — Is there a supported way to run `codex exec` with zero agent tools (model text only)? If not, should v1 omit `CODEX_CLI` or accept “Codex may still try tools under sandbox”?
+1. **Codex tool suppression** — Is there a supported way to run `codex exec` with zero agent tools (model text only)? If not, rely on prompt ban + strip tool_calls.
 2. **System prompt flags** — Grok `--system-prompt-override` vs Claude `--system-prompt` vs Codex config: confirm best flags so Nori's system prompt is not double-wrapped with CLI defaults (`--bare` / empty tools helps).
-3. **JSON envelope vs vendor json-schema** — Prefer forcing schema via CLI flags when present; fall back to prompt-only instructions. Confirm Grok/Claude json-schema works with tools disabled and multi-turn serialized prompts.
-4. **Latency** — Cold-starting a CLI per turn is slower than HTTP keep-alive. Acceptable for v1? (Later: long-lived `grok agent stdio` / local proxy.)
-5. **ToS / Acceptable use** — Whether automating subscription CLIs is allowed varies by vendor. Spec treats this as user responsibility; any stronger stance (warn at runtime once)?
-6. **`nori` CLI default** — Keep default as `Provider.XAI` + API key, or document `NORI_PROVIDER=grok_cli` as the zero-key path?
+3. **Latency** — Cold-starting a CLI per turn is slower than HTTP keep-alive. Acceptable for v1? (Later: long-lived `grok agent stdio` / local proxy.)
+4. **ToS / Acceptable use** — Whether automating subscription CLIs is allowed varies by vendor. Spec treats this as user responsibility; any stronger stance (warn at runtime once)?
+5. **`nori` CLI default** — Keep default as `Provider.XAI` + API key, or document `NORI_PROVIDER=grok_cli` as the zero-key path?
 
 ---
 
 ## Success criteria
 
-- With `claude` (or `grok`) installed and authenticated, and **no** corresponding API key in the environment, a Nori `Agent` configured with `Provider.CLAUDE_CLI` / `Provider.GROK_CLI` can complete a multi-turn run that uses **Nori** tools (`Bash`, etc.).
-- The CLI process never executes its own Edit/Bash/etc. on Nori's behalf (tools disabled in argv).
+- With `claude` (or `grok`) installed and authenticated, and **no** corresponding API key in the environment, a Nori `Agent` configured with `Provider.CLAUDE_CLI` / `Provider.GROK_CLI` can complete a **text-only** multi-turn run.
+- `Agent(..., tools=[...], model=Model(..., provider=Provider.GROK_CLI))` raises — no tools registered.
+- The CLI process never executes its own Edit/Bash/etc. on Nori's behalf (tools disabled in argv + model ban).
 - HTTP providers and existing demos behave exactly as before.
 - Missing binary and auth failures produce actionable errors, not stack traces from `AsyncOpenAI`.

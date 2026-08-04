@@ -1,7 +1,8 @@
-"""Per-vendor CLI backends used as model connectivity (not Nori tools).
+"""Per-vendor CLI backends used as model connectivity only.
 
 These adapters turn a serialized Nori completion into a headless CLI invocation
-with the vendor agent tools disabled. See specs/SPEC-19-cli-agent-connectivity.md.
+with ALL tools disabled (vendor CLI tools off; Nori tools are not used on this
+path either). See specs/SPEC-19-cli-agent-connectivity.md.
 """
 from __future__ import annotations
 

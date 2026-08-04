@@ -25,10 +25,10 @@ You can also use a `.env` file — Nori loads it automatically via `python-doten
 
 ### No API key? Use an installed CLI
 
-If you have **Grok Build**, **Claude Code**, or **Codex** installed and logged in, Nori can use that connectivity instead of an API key. The CLI is only a transport — Nori still owns the agent loop and tools (vendor CLI tools are disabled).
+If you have **Grok Build**, **Claude Code**, or **Codex** installed and logged in, Nori can use that connectivity instead of an API key. The CLI is **transport only** — text completion, **no tools of any kind** (vendor tools disabled; Nori tools are not registered and will raise if you pass them).
 
 ```python
-# Grok Build on PATH (no XAI_API_KEY required)
+# Grok Build on PATH (no XAI_API_KEY required) — text-only agent
 nori.configure(model=Model(id="grok-4.5", provider=Provider.GROK_CLI))
 
 # Claude Code on PATH
@@ -41,10 +41,10 @@ nori.configure(model=Model(id="gpt-5.4", provider=Provider.CODEX_CLI))
 CLI:
 
 ```bash
-nori --provider grok_cli --model grok-4.5 "What files are in this directory?"
+nori --provider grok_cli --model grok-4.5 "Explain what this project does in one paragraph"
 ```
 
-Subscription usage is billed by the vendor plan; `agent.cost` will report `$0` for CLI-backed runs.
+Subscription usage is billed by the vendor plan; `agent.cost` will report `$0` for CLI-backed runs. Agents that need tools require an HTTP provider and API key.
 
 ## Configure a model
 

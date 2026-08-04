@@ -8,13 +8,11 @@ import asyncio
 import json
 import logging
 import shutil
-import uuid
 from dataclasses import dataclass
 from typing import Any, Protocol
 
 from openai import AsyncOpenAI
-from openai.types.chat import ChatCompletionMessage, ChatCompletionMessageToolCall
-from openai.types.chat.chat_completion_message_tool_call import Function
+from openai.types.chat import ChatCompletionMessage
 
 from nori.cli_backends import CliBackend, backend_for_provider, write_prompt_file
 
@@ -71,7 +69,11 @@ class OpenAICompleter:
 
 
 class CliCompleter:
-    """Shell out to grok/claude/codex for connectivity; Nori keeps the agent loop."""
+    """Shell out to grok/claude/codex for model connectivity only.
+
+    No tools of any kind: vendor CLI tools are disabled in argv, Nori tools are
+    never serialized, and any tool_calls in the reply are stripped.
+    """
 
     def __init__(
         self,
@@ -107,7 +109,13 @@ class CliCompleter:
         extra_headers: dict[str, str] | None = None,
         **kwargs: Any,
     ) -> CompletionResult:
-        system, user_prompt = serialize_for_cli(messages, tools=tools, tool_choice=tool_choice)
+        # Hard ban: ignore tools / tool_choice entirely. CLI path is text only.
+        if tools:
+            logger.warning(
+                "cli_completer: dropping %d tool schema(s) — CLI connectivity forbids tools",
+                len(tools),
+            )
+        system, user_prompt = serialize_for_cli(messages)
         # Codex has no system flag — fold into the prompt body.
         if self.backend.name == "codex" and system:
             user_prompt = f"[system]\n{system}\n\n{user_prompt}"
@@ -164,44 +172,36 @@ class CliCompleter:
 # ── Serialization / parsing ───────────────────────────────────────────────────
 
 # Always injected into the CLI system prompt. Flags like --tools "" are the hard
-# control; this is the belt-and-suspenders instruction for the model.
-_CLI_NO_NATIVE_TOOLS = """\
-[Nori / CLI connectivity]
-You are being driven by the Nori agent framework through a headless CLI.
-DO NOT USE YOUR OWN TOOLS. You have no built-in agent tools in this mode.
-Do not call or attempt Bash, Edit, Read, Write, Glob, Grep, WebSearch, Shell,
-or any other CLI-native / vendor tool. Do not run shell commands, edit files,
-or browse the web yourself.
-If tools are needed, call only the Nori tools listed in the prompt via the JSON
-envelope. If no Nori tools are listed, reply with final text only.
-"""
+# control at the process boundary. This text is the model-facing ban — absolute.
+_CLI_NO_TOOLS = """\
+[Nori / CLI connectivity — TOOLS FORBIDDEN]
 
-_ENVELOPE_INSTRUCTIONS = """\
-Reply with ONLY a single JSON object (no markdown fences) in one of these forms:
+ABSOLUTE RULE: YOU HAVE NO TOOLS. TOOL CALLING IS COMPLETELY DISABLED.
 
-Final answer (no tools):
-{"content":"your user-facing reply"}
+This is not a preference. This is not optional. There are zero tools available.
 
-One or more Nori tool calls:
-{"tool_calls":[{"id":"call_1","name":"ToolName","arguments":{...}}]}
+- Do NOT call tools. Do NOT attempt tools. Do NOT emit tool_calls, function calls,
+  tool_use blocks, XML tool tags, or any tool-shaped markup of any kind.
+- Do NOT use Bash, Shell, Edit, Read, Write, Glob, Grep, WebSearch, WebFetch,
+  Browser, Agent, MCP, Nori tools, or ANY other tool — vendor, framework, or invented.
+- Do NOT run shell commands, edit files, browse the web, spawn subagents, or
+  simulate a tool loop in prose.
+- Do NOT reply with JSON envelopes that request tools. Do NOT invent tools.
+- There is no tool API in this mode. There is no Nori tool envelope. Nothing.
 
-Optional short status plus tools:
-{"content":"brief status","tool_calls":[{"id":"call_1","name":"ToolName","arguments":{...}}]}
+You answer with plain text only. Write the final reply to the user and stop.
 
-DO NOT USE YOUR OWN (CLI-native) TOOLS. Only the Nori tools listed below exist.
-Do not invent tools that are not listed. Do not run shell commands yourself — call Nori tools.
-Arguments must be a JSON object, not a string.
+If you feel you need a tool: you still do not get one. Answer from what you know
+in the prompt, or say what you cannot do. Never emit a tool call.
 """
 
 
-def serialize_for_cli(
-    messages: list[dict],
-    *,
-    tools: list[dict] | None = None,
-    tool_choice: str | dict | None = None,
-) -> tuple[str | None, str]:
-    """Return (system_prompt, user_blob) for a single CLI invocation."""
-    system_parts: list[str] = [_CLI_NO_NATIVE_TOOLS.strip()]
+def serialize_for_cli(messages: list[dict]) -> tuple[str | None, str]:
+    """Return (system_prompt, user_blob) for a single CLI invocation.
+
+    Tools are never serialized. CLI connectivity is text-only completion.
+    """
+    system_parts: list[str] = [_CLI_NO_TOOLS.strip()]
     conversation: list[str] = []
 
     for m in messages:
@@ -214,75 +214,35 @@ def serialize_for_cli(
         if role == "user":
             conversation.append(f"user: {content}")
         elif role == "assistant":
-            line = f"assistant: {content}" if content else "assistant:"
-            tcs = m.get("tool_calls")
-            if tcs:
-                calls = []
-                for tc in tcs:
-                    fn = tc.get("function") or {}
-                    calls.append(
-                        {
-                            "id": tc.get("id"),
-                            "name": fn.get("name"),
-                            "arguments": _parse_args_blob(fn.get("arguments")),
-                        }
-                    )
-                line += f"\ntool_calls: {json.dumps(calls, ensure_ascii=False)}"
-            conversation.append(line)
+            # Drop any historical tool_calls — tools do not exist on this path.
+            conversation.append(f"assistant: {content}" if content else "assistant:")
         elif role == "tool":
-            tid = m.get("tool_call_id", "")
-            conversation.append(f"tool (id={tid}): {content}")
+            # Should not appear on a tool-free agent; ignore if present.
+            continue
         else:
             conversation.append(f"{role}: {content}")
 
     system = "\n\n".join(system_parts)
 
-    body_parts = ["[conversation]", "\n".join(conversation) if conversation else "(empty)"]
-
-    if tools:
-        body_parts.append("[nori tools]")
-        body_parts.append(_ENVELOPE_INSTRUCTIONS)
-        if tool_choice == "none":
-            body_parts.append(
-                "tool_choice=none: you MUST reply with final content only "
-                '(form {"content":"..."}); do not emit tool_calls.'
-            )
-        elif isinstance(tool_choice, dict):
-            forced = (
-                (tool_choice.get("function") or {}).get("name")
-                if tool_choice.get("type") == "function"
-                else None
-            )
-            if forced:
-                body_parts.append(
-                    f'tool_choice=required: you MUST call the Nori tool "{forced}" now '
-                    f'(emit tool_calls with name "{forced}").'
-                )
-        schemas = []
-        for t in tools:
-            fn = t.get("function") if isinstance(t, dict) else None
-            if not isinstance(fn, dict):
-                continue
-            schemas.append(
-                {
-                    "name": fn.get("name"),
-                    "description": fn.get("description", ""),
-                    "parameters": fn.get("parameters", {}),
-                }
-            )
-        body_parts.append("Available tools:")
-        body_parts.append(json.dumps(schemas, indent=2, ensure_ascii=False))
-    else:
-        body_parts.append(
-            "DO NOT USE YOUR OWN TOOLS. No Nori tools are available this turn.\n"
-            'Reply with ONLY: {"content":"your reply"}  (single JSON object, no fences).'
-        )
+    body_parts = [
+        "[conversation]",
+        "\n".join(conversation) if conversation else "(empty)",
+        (
+            "[output contract]\n"
+            "TOOLS ARE BANNED. Reply with plain text only — your final answer to the user.\n"
+            "No JSON tool envelopes. No tool_calls. No function calls. No markup for tools.\n"
+            "Just write the answer."
+        ),
+    ]
 
     return system, "\n\n".join(body_parts)
 
 
 def parse_cli_message(raw: str) -> ChatCompletionMessage:
-    """Parse CLI stdout (envelope or plain text) into ChatCompletionMessage."""
+    """Parse CLI stdout into a text-only ChatCompletionMessage.
+
+    Any tool_calls in the payload are discarded. CLI connectivity never returns tools.
+    """
     text = (raw or "").strip()
     if not text:
         return ChatCompletionMessage(role="assistant", content="")
@@ -294,68 +254,33 @@ def parse_cli_message(raw: str) -> ChatCompletionMessage:
     if not isinstance(data, dict):
         return ChatCompletionMessage(role="assistant", content=text)
 
-    # Already an OpenAI-ish message.
-    if data.get("role") == "assistant" and ("content" in data or "tool_calls" in data):
-        return _message_from_dict(data)
+    if data.get("tool_calls"):
+        logger.warning("cli_completer: stripping tool_calls from CLI reply (tools forbidden)")
 
     content = data.get("content")
     if content is not None and not isinstance(content, str):
         content = json.dumps(content, ensure_ascii=False)
 
-    tool_calls_raw = data.get("tool_calls")
-    tool_calls = _parse_tool_calls(tool_calls_raw) if tool_calls_raw else None
+    # Prefer explicit content field; otherwise treat whole object as opaque text
+    # unless it only looked like a tool envelope (no useful content).
+    if isinstance(content, str) and content.strip():
+        return ChatCompletionMessage(role="assistant", content=content)
 
-    if tool_calls or content is not None or "content" in data:
-        return ChatCompletionMessage(
-            role="assistant",
-            content=content if isinstance(content, str) else None,
-            tool_calls=tool_calls,
-        )
+    if "content" in data and (content is None or content == ""):
+        # Empty content with discarded tool_calls — nothing useful.
+        if data.get("tool_calls"):
+            return ChatCompletionMessage(
+                role="assistant",
+                content=(
+                    "(CLI model attempted a tool call; tools are disabled on this "
+                    "connectivity path. No tool was run.)"
+                ),
+            )
+        return ChatCompletionMessage(role="assistant", content="")
 
     # Unknown JSON object — surface as text so the loop can continue.
-    logger.warning("cli_completer: could not parse envelope; using raw text")
+    logger.warning("cli_completer: could not parse content field; using raw text")
     return ChatCompletionMessage(role="assistant", content=text)
-
-
-def _message_from_dict(data: dict) -> ChatCompletionMessage:
-    content = data.get("content")
-    if content is not None and not isinstance(content, str):
-        content = str(content)
-    tcs = _parse_tool_calls(data.get("tool_calls")) if data.get("tool_calls") else None
-    return ChatCompletionMessage(role="assistant", content=content, tool_calls=tcs)
-
-
-def _parse_tool_calls(raw) -> list[ChatCompletionMessageToolCall] | None:
-    if not isinstance(raw, list) or not raw:
-        return None
-    out: list[ChatCompletionMessageToolCall] = []
-    for i, tc in enumerate(raw):
-        if not isinstance(tc, dict):
-            continue
-        # OpenAI shape: {id, type, function: {name, arguments}}
-        if isinstance(tc.get("function"), dict):
-            name = tc["function"].get("name") or ""
-            args = tc["function"].get("arguments", {})
-        else:
-            name = tc.get("name") or ""
-            args = tc.get("arguments", {})
-        if not name:
-            continue
-        if isinstance(args, dict):
-            args_str = json.dumps(args, ensure_ascii=False)
-        elif isinstance(args, str):
-            args_str = args
-        else:
-            args_str = json.dumps(args, ensure_ascii=False)
-        call_id = tc.get("id") or f"call_{uuid.uuid4().hex[:8]}"
-        out.append(
-            ChatCompletionMessageToolCall(
-                id=str(call_id),
-                type="function",
-                function=Function(name=str(name), arguments=args_str),
-            )
-        )
-    return out or None
 
 
 def _content_to_str(content) -> str:
@@ -375,17 +300,6 @@ def _content_to_str(content) -> str:
                 parts.append(str(part))
         return "\n".join(parts)
     return str(content)
-
-
-def _parse_args_blob(arguments) -> Any:
-    if isinstance(arguments, dict):
-        return arguments
-    if isinstance(arguments, str):
-        try:
-            return json.loads(arguments)
-        except json.JSONDecodeError:
-            return arguments
-    return arguments
 
 
 def _loads_json_loose(text: str) -> Any | None:

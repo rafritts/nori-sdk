@@ -102,7 +102,7 @@ def test_codex_argv_uses_exec():
     assert argv[-1] == "-"
 
 
-# ── Envelope parse / serialize ────────────────────────────────────────────────
+# ── Parse / serialize (text-only, no tools) ───────────────────────────────────
 
 def test_parse_content_only():
     msg = parse_cli_message('{"content":"hello"}')
@@ -110,32 +110,27 @@ def test_parse_content_only():
     assert not msg.tool_calls
 
 
-def test_parse_tool_calls():
+def test_parse_strips_tool_calls():
     raw = json.dumps({
         "tool_calls": [
             {"id": "c1", "name": "Bash", "arguments": {"command": "ls", "reason": "list"}},
         ]
     })
     msg = parse_cli_message(raw)
-    assert msg.content is None or msg.content == ""
-    assert msg.tool_calls is not None
-    assert len(msg.tool_calls) == 1
-    assert msg.tool_calls[0].function.name == "Bash"
-    args = json.loads(msg.tool_calls[0].function.arguments)
-    assert args["command"] == "ls"
+    assert not msg.tool_calls
+    assert msg.content  # placeholder explaining tools are disabled
 
 
-def test_parse_multi_tool_calls():
+def test_parse_content_wins_over_tool_calls():
     raw = json.dumps({
         "content": "working",
         "tool_calls": [
             {"name": "Bash", "arguments": {"command": "a", "reason": "r"}},
-            {"name": "FileRead", "arguments": {"path": "x", "reason": "r"}},
         ],
     })
     msg = parse_cli_message(raw)
     assert msg.content == "working"
-    assert len(msg.tool_calls) == 2
+    assert not msg.tool_calls
 
 
 def test_parse_malformed_falls_back_to_content():
@@ -147,6 +142,7 @@ def test_parse_malformed_falls_back_to_content():
 def test_parse_markdown_fenced_json():
     msg = parse_cli_message('```json\n{"content":"fenced"}\n```')
     assert msg.content == "fenced"
+    assert not msg.tool_calls
 
 
 def test_claude_extract_text_result_field():
@@ -171,13 +167,13 @@ def test_claude_extract_raises_on_error():
         backend.extract_text(stdout)
 
 
-def test_serialize_includes_tools_and_history():
+def test_serialize_history_without_tools():
     messages = [
         {"role": "system", "content": "Be concise."},
         {"role": "user", "content": "list files"},
         {
             "role": "assistant",
-            "content": None,
+            "content": "I cannot list files.",
             "tool_calls": [{
                 "id": "c1",
                 "type": "function",
@@ -186,41 +182,28 @@ def test_serialize_includes_tools_and_history():
         },
         {"role": "tool", "tool_call_id": "c1", "content": "a.txt"},
     ]
-    tools = [{
-        "type": "function",
-        "function": {
-            "name": "Bash",
-            "description": "Run shell",
-            "parameters": {"type": "object", "properties": {}},
-        },
-    }]
-    system, body = serialize_for_cli(messages, tools=tools)
+    system, body = serialize_for_cli(messages)
     assert system is not None
-    assert "DO NOT USE YOUR OWN TOOLS" in system
+    assert "TOOLS FORBIDDEN" in system or "YOU HAVE NO TOOLS" in system
+    assert "TOOL CALLING IS COMPLETELY DISABLED" in system
     assert "Be concise." in system
     assert "list files" in body
-    assert "Bash" in body
-    assert "tool_calls" in body
-    assert "Available tools" in body
-    assert "DO NOT USE YOUR OWN (CLI-native) TOOLS" in body
+    assert "Available tools" not in body
+    assert "nori tools" not in body.lower()
+    # Historical tool call payloads must not be re-serialized (ban text may mention the word)
+    assert '"name": "Bash"' not in body
+    assert "tool (id=" not in body
+    assert "TOOLS ARE BANNED" in body
 
 
-def test_serialize_always_bans_cli_native_tools():
+def test_serialize_aggressive_no_tools_ban():
     system, body = serialize_for_cli([{"role": "user", "content": "hi"}])
     assert system is not None
-    assert "DO NOT USE YOUR OWN TOOLS" in system
-    assert "no built-in agent tools" in system.lower()
-    assert "DO NOT USE YOUR OWN TOOLS" in body
-
-
-def test_serialize_tool_choice_none():
-    tools = [{"type": "function", "function": {"name": "Bash", "description": "", "parameters": {}}}]
-    _, body = serialize_for_cli(
-        [{"role": "user", "content": "done?"}],
-        tools=tools,
-        tool_choice="none",
-    )
-    assert "tool_choice=none" in body
+    assert "YOU HAVE NO TOOLS" in system
+    assert "TOOL CALLING IS COMPLETELY DISABLED" in system
+    assert "Nori tool envelope" in system or "no Nori tool envelope" in system.lower()
+    assert "TOOLS ARE BANNED" in body
+    assert "plain text" in body.lower()
 
 
 # ── CliCompleter ──────────────────────────────────────────────────────────────
@@ -263,10 +246,9 @@ async def test_cli_completer_nonzero_exit(monkeypatch):
         )
 
 
-# ── Agent loop with fake CliCompleter ─────────────────────────────────────────
+# ── Agent: CLI path is tool-free ──────────────────────────────────────────────
 
-async def test_agent_cli_loop_tool_then_final(monkeypatch):
-    """Agent with GROK_CLI runs Nori tools via envelope tool_calls."""
+def test_agent_cli_rejects_tools():
     from nori.tool import tool
 
     @tool
@@ -274,23 +256,50 @@ async def test_agent_cli_loop_tool_then_final(monkeypatch):
         """Echo text back."""
         return f"echo:{text}"
 
-    calls = {"n": 0}
+    with pytest.raises(ValueError, match="tool calling is completely disabled"):
+        Agent(
+            name="cli-agent",
+            model=Model(id="grok-4.5", provider=Provider.GROK_CLI),
+            tools=[echo_tool],
+        )
+
+
+def test_agent_cli_rejects_deferred_and_mcp():
+    from nori.tool import tool
+
+    @tool
+    def echo_tool(text: str) -> str:
+        """Echo."""
+        return text
+
+    with pytest.raises(ValueError, match="deferred_tools"):
+        Agent(
+            name="cli-agent",
+            model=Model(id="grok-4.5", provider=Provider.GROK_CLI),
+            deferred_tools=[echo_tool],
+        )
+
+
+def test_agent_cli_registers_no_tools():
+    agent = Agent(
+        name="cli-agent",
+        model=Model(id="grok-4.5", provider=Provider.GROK_CLI),
+    )
+    assert agent._tools == {}
+    assert agent._deferred_tools == {}
+    assert agent._mcp_servers == []
+
+
+async def test_agent_cli_loop_text_only(monkeypatch):
+    """Agent with GROK_CLI returns plain text; never runs tools."""
+    calls = {"n": 0, "tools_arg": None}
 
     class FakeCliCompleter:
         async def complete(self, *, model, messages, tools=None, tool_choice=None, **kwargs):
             calls["n"] += 1
-            if calls["n"] == 1:
-                msg = parse_cli_message(json.dumps({
-                    "tool_calls": [{
-                        "id": "c1",
-                        "name": "echo_tool",
-                        "arguments": {"text": "hi", "reason": "test"},
-                    }],
-                }))
-                return CompletionResult(message=msg)
-            # After tools, final output path may request tool_choice=none.
+            calls["tools_arg"] = tools
             return CompletionResult(
-                message=ChatCompletionMessage(role="assistant", content="done with tools")
+                message=ChatCompletionMessage(role="assistant", content="plain answer")
             )
 
     monkeypatch.setattr(
@@ -301,15 +310,13 @@ async def test_agent_cli_loop_tool_then_final(monkeypatch):
     agent = Agent(
         name="cli-agent",
         model=Model(id="grok-4.5", provider=Provider.GROK_CLI),
-        tools=[echo_tool],
-        max_turns=5,
+        max_turns=3,
     )
-    # Avoid hanging if more turns needed — FakeCli always returns content after first.
-    result = await agent.run("use the tool")
-    assert "done" in result.lower() or result
-    assert calls["n"] >= 1
-    # Tool should have run
-    assert any(e.get("name") == "echo_tool" for e in agent._tool_calls_log)
+    result = await agent.run("hello")
+    assert result == "plain answer"
+    assert calls["n"] == 1
+    assert calls["tools_arg"] is None
+    assert agent._tool_calls_log == []
 
 
 async def test_agent_cli_does_not_build_openai_client():

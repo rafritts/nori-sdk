@@ -25,14 +25,6 @@ def _resolve_model(provider_str: str, model_str: str):
 def _make_agent(model, narration: bool, sandbox: bool):
     import nori
     from nori.tools._sandbox import sandbox_dir as _sandbox_dir
-    from nori.tools.api_client import ApiClient
-    from nori.tools.bash import Bash
-    from nori.tools.browser import BrowserAgent, BrowserClient
-    from nori.tools.code_runner import CodeRunner
-    from nori.tools.file_edit import FileEdit
-    from nori.tools.file_search import FileSearch
-    from nori.tools.web_client import WebClient
-    from nori.tools.web_search import WebSearch
 
     if sandbox:
         _sandbox_dir.set(os.getcwd())
@@ -40,12 +32,36 @@ def _make_agent(model, narration: bool, sandbox: bool):
     nori.configure(model=model)
 
     from nori import Agent
-    agent = Agent(
-        name="cli",
-        tools=[Bash],
-        deferred_tools=[ApiClient, BrowserAgent, BrowserClient, CodeRunner, FileEdit, FileSearch, WebClient, WebSearch],
-        show_tool_stubs=True,
-    )
+
+    # CLI connectivity providers are text-only (no tools of any kind).
+    if model.provider is not None and model.provider.is_cli:
+        agent = Agent(name="cli", model=model)
+    else:
+        from nori.tools.api_client import ApiClient
+        from nori.tools.bash import Bash
+        from nori.tools.browser import BrowserAgent, BrowserClient
+        from nori.tools.code_runner import CodeRunner
+        from nori.tools.file_edit import FileEdit
+        from nori.tools.file_search import FileSearch
+        from nori.tools.web_client import WebClient
+        from nori.tools.web_search import WebSearch
+
+        agent = Agent(
+            name="cli",
+            model=model,
+            tools=[Bash],
+            deferred_tools=[
+                ApiClient,
+                BrowserAgent,
+                BrowserClient,
+                CodeRunner,
+                FileEdit,
+                FileSearch,
+                WebClient,
+                WebSearch,
+            ],
+            show_tool_stubs=True,
+        )
     agent.narration = narration
     return agent
 

@@ -153,6 +153,35 @@ class Agent:
             raise ValueError("Agent name must be a non-empty string.")
         if max_turns is not None and max_turns <= 0:
             raise ValueError("Agent max_turns must be a positive integer or None.")
+        # CLI connectivity providers are text-only: no Nori tools, no MCP, no
+        # vendor tools. Slam the door at Agent construction so nothing registers.
+        if model.provider is not None and model.provider.is_cli:
+            _cli_tool_blockers = []
+            if tools:
+                _cli_tool_blockers.append("tools")
+            if deferred_tools:
+                _cli_tool_blockers.append("deferred_tools")
+            if mcp_servers:
+                _cli_tool_blockers.append("mcp_servers")
+            if scratchpad is not None:
+                _cli_tool_blockers.append("scratchpad")
+            if self_modify is not None:
+                _cli_tool_blockers.append("self_modify")
+            if force_tool is not None:
+                _cli_tool_blockers.append("force_tool")
+            if _cli_tool_blockers:
+                raise ValueError(
+                    f"Provider.{model.provider.name} is CLI connectivity only — "
+                    f"tool calling is completely disabled. Remove: {', '.join(_cli_tool_blockers)}. "
+                    f"Use an HTTP provider (e.g. Provider.XAI) if the agent needs tools."
+                )
+            tools = None
+            deferred_tools = None
+            mcp_servers = None
+            scratchpad = None
+            self_modify = None
+            force_tool = None
+            require_no_tools_ack = False
         self.name = name
         self._model = model
         self.model: str = model.id

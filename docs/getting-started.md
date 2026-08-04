@@ -23,6 +23,29 @@ export ANTHROPIC_API_KEY=your_key_here
 
 You can also use a `.env` file — Nori loads it automatically via `python-dotenv`.
 
+### No API key? Use an installed CLI
+
+If you have **Grok Build**, **Claude Code**, or **Codex** installed and logged in, Nori can use that connectivity instead of an API key. The CLI is only a transport — Nori still owns the agent loop and tools (vendor CLI tools are disabled).
+
+```python
+# Grok Build on PATH (no XAI_API_KEY required)
+nori.configure(model=Model(id="grok-4.5", provider=Provider.GROK_CLI))
+
+# Claude Code on PATH
+nori.configure(model=Model(id="claude-sonnet-4-6", provider=Provider.CLAUDE_CLI))
+
+# Codex CLI on PATH
+nori.configure(model=Model(id="gpt-5.4", provider=Provider.CODEX_CLI))
+```
+
+CLI:
+
+```bash
+nori --provider grok_cli --model grok-4.5 "What files are in this directory?"
+```
+
+Subscription usage is billed by the vendor plan; `agent.cost` will report `$0` for CLI-backed runs.
+
 ## Configure a model
 
 Before creating agents, tell Nori which model to use:
@@ -33,7 +56,7 @@ from nori import Model
 from nori.providers import Provider
 
 nori.configure(
-    model=Model(id="grok-4", provider=Provider.XAI),
+    model=Model(id="grok-4.5", provider=Provider.XAI),
 )
 ```
 
@@ -48,7 +71,7 @@ from nori import Agent, Model
 from nori.providers import Provider
 from nori.tools.bash import Bash
 
-nori.configure(model=Model(id="grok-4", provider=Provider.XAI))
+nori.configure(model=Model(id="grok-4.5", provider=Provider.XAI))
 
 async def main():
     agent = Agent(

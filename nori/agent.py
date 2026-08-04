@@ -12,6 +12,7 @@ from openai.types.chat import ChatCompletionMessage
 from nori.anti_spin import Checkpoint, evaluate_checkpoint
 import nori.config as config
 from nori import tower_sink as _tower_sink
+from nori.completer import CliCompleter, Completer, OpenAICompleter
 from nori.context import ContextFile, inject_summary, update_running_summary
 from nori.enums import ContextRole, OutputFormat, Propagation, SelfModify
 from nori.exceptions import AntiSpinTerminated, MaxTurnsExceeded, MCPConnectionError, RunTimeout
@@ -159,6 +160,7 @@ class Agent:
         self.description = description
         self._context_files = context_files or []
         self.__client: AsyncOpenAI | None = None
+        self.__completer: Completer | None = None
         self._permissions = PermissionGuard(
             permissions.allow if permissions else None,
             permissions.deny if permissions else None,
@@ -250,6 +252,12 @@ class Agent:
 
     @property
     def _client(self) -> AsyncOpenAI:
+        """HTTP client for OpenAI-compatible providers. Not used for CLI providers."""
+        if self._model.provider is not None and self._model.provider.is_cli:
+            raise RuntimeError(
+                f"Model provider {self._model.provider.name} is a CLI backend; "
+                "use Agent completions via the completer, not AsyncOpenAI."
+            )
         if self.__client is None:
             if self._model.http_client is not None:
                 self.__client = AsyncOpenAI(
@@ -263,6 +271,17 @@ class Agent:
                     base_url=self._model.base_url,
                 )
         return self.__client
+
+    @property
+    def _completer(self) -> Completer:
+        if self.__completer is None:
+            if self._model.provider is not None and self._model.provider.is_cli:
+                self.__completer = CliCompleter.from_model(
+                    self._model, timeout=self.run_timeout
+                )
+            else:
+                self.__completer = OpenAICompleter(self._client)
+        return self.__completer
 
     # ── Self-modification ─────────────────────────────────────────────────────
 
@@ -538,7 +557,7 @@ class Agent:
 
     async def _compact(self, fill: float = 0.0) -> None:
         self._running_summary = await update_running_summary(
-            self._history, self._running_summary, self._client, self.model
+            self._history, self._running_summary, self._completer, self.model
         )
         self._history = inject_summary(self._history, self._running_summary)
         self._compact_warning_injected = False
@@ -571,7 +590,7 @@ class Agent:
     async def _run_checkpoint(self) -> None:
         recent = self._history[-self._checkpoint.every * 4:]
         is_spin, summary = await evaluate_checkpoint(
-            recent, self._checkpoint.scrutiny, self._client, self.model
+            recent, self._checkpoint.scrutiny, self._completer, self.model
         )
         if is_spin:
             raise AntiSpinTerminated(
@@ -832,7 +851,7 @@ class Agent:
         content = result.result if hasattr(result, "result") else str(result)
         content = content or "[EMPTY]"
         if self.summarize_tool_output and getattr(fn, "summarize_output", True):
-            content = await summarize(content, reason, self._client, self.model)
+            content = await summarize(content, reason, self._completer, self.model)
         logger.debug("tool_result name=%s result=%s elapsed=%.2fs", tc.function.name, content, tool_elapsed)
         self._narrate_elapsed(tc.function.name, tool_elapsed, tool_call_id, is_parallel)
         self._narrate_result(tc.function.name, content, tool_call_id, is_parallel)
@@ -859,32 +878,43 @@ class Agent:
 
     async def _complete(self, history: list[dict]) -> ChatCompletionMessage:
         messages = self._build_messages(history)
-        kwargs: dict = {**self._model.completion_kwargs(), "messages": messages}
+        # completion_kwargs includes model id (+ reasoning_effort); completer takes model= separately.
+        extra = {k: v for k, v in self._model.completion_kwargs().items() if k != "model"}
+        tools = None
+        tool_choice = None
         if self._tools:
-            kwargs["tools"] = self._tool_schemas()
+            tools = self._tool_schemas()
             # Final-output turn: text only — no more tools.
             if self._awaiting_final_output:
-                kwargs["tool_choice"] = "none"
+                tool_choice = "none"
             # Pin tool_choice while force_tool is active (e.g. user asked for a pic).
             elif self._force_tool_active():
                 names = {
                     s.get("function", {}).get("name")
-                    for s in kwargs["tools"]
+                    for s in tools
                     if isinstance(s, dict)
                 }
                 if self.force_tool in names:
-                    kwargs["tool_choice"] = {
+                    tool_choice = {
                         "type": "function",
                         "function": {"name": self.force_tool},
                     }
         # Sticky routing for xAI prompt cache (and harmless elsewhere).
+        extra_headers = None
         conv_id = getattr(self, "conversation_id", None)
         if isinstance(conv_id, str) and conv_id.strip():
-            kwargs["extra_headers"] = {"x-grok-conv-id": conv_id.strip()}
-        response = await self._client.chat.completions.create(**kwargs)
-        if response.usage:
-            self._record_usage(response.usage)
-        return response.choices[0].message
+            extra_headers = {"x-grok-conv-id": conv_id.strip()}
+        result = await self._completer.complete(
+            model=self.model,
+            messages=messages,
+            tools=tools,
+            tool_choice=tool_choice,
+            extra_headers=extra_headers,
+            **extra,
+        )
+        if result.usage:
+            self._record_usage(result.usage)
+        return result.message
 
     def _record_usage(self, usage) -> None:
         """Accumulate provider usage. Includes reasoning tokens and exact $ ticks when present."""
@@ -1013,7 +1043,7 @@ class Agent:
         """Shared exit path when the run ends on a no-tool turn."""
         if self.running_context_summary:
             self._running_summary = await update_running_summary(
-                self._history, self._running_summary, self._client, self.model
+                self._history, self._running_summary, self._completer, self.model
             )
             self._history = inject_summary(self._history, self._running_summary)
         self._narrate_summary()

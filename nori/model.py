@@ -21,9 +21,11 @@ class Model:
     provider: Provider | None = None
     region: str | None = None      # AWS region for Provider.BEDROCK; ignored by all others
     http_client: object | None = None  # custom httpx.AsyncClient; bypasses api_key/base_url auth
-    # xAI grok-4.3+ (and similar): none | low | medium | high. None = omit from request
+    # xAI grok-4.5+ (and similar): none | low | medium | high. None = omit from request
     # (provider default). Chat Completions uses top-level ``reasoning_effort``.
     reasoning_effort: ReasoningEffort | None = None
+    # Optional absolute path to a CLI binary (CLI providers only). None → PATH lookup.
+    cli_path: str | None = None
 
     def __post_init__(self):
         if not self.id:
@@ -40,6 +42,9 @@ class Model:
             from nori.providers import Provider as P
             if self.provider is P.BEDROCK:
                 self._setup_bedrock()
+            elif self.provider.is_cli:
+                # Auth lives in the installed CLI; no api_key / base_url required.
+                pass
             else:
                 self.base_url = self.base_url or self.provider.base_url
                 self.api_key = self.api_key or self.provider.api_key
@@ -52,15 +57,23 @@ class Model:
                         f"To fix this, do one of:\n"
                         f"  1. Export it in your shell: export {env_var}=your-key-here\n"
                         f"  2. Add it to a .env file in your project root: {env_var}=your-key-here\n"
-                        f"  3. Pass it directly: Model(id={self.id!r}, provider=Provider.{self.provider.name}, api_key='your-key-here')"
+                        f"  3. Pass it directly: Model(id={self.id!r}, provider=Provider.{self.provider.name}, api_key='your-key-here')\n"
+                        f"  4. If you have the vendor CLI installed and logged in, use a CLI provider "
+                        f"(e.g. Provider.GROK_CLI / Provider.CLAUDE_CLI / Provider.CODEX_CLI) instead of an API key."
                     )
 
         if self.http_client is not None and self.base_url is None:
             raise ValueError("Model with http_client requires base_url.")
-        if self.http_client is None and self.api_key is None and self.base_url is None:
+        if (
+            self.http_client is None
+            and self.api_key is None
+            and self.base_url is None
+            and not (self.provider is not None and self.provider.is_cli)
+        ):
             raise ValueError(
-                "Model requires api_key, base_url, or provider. "
-                "Example: Model(id='grok-4', provider=Provider.XAI)"
+                "Model requires api_key, base_url, provider, or a CLI provider. "
+                "Example: Model(id='grok-4.5', provider=Provider.XAI) "
+                "or Model(id='grok-4.5', provider=Provider.GROK_CLI)"
             )
 
     def __repr__(self) -> str:

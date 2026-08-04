@@ -9,7 +9,7 @@ Run with: uv run python demos/browser1_demo.py
 
 import asyncio
 
-import config  # noqa: F401 — triggers nori.configure() with grok-4.3
+import config  # noqa: F401 — triggers nori.configure() with grok-4.5
 
 from nori import Agent
 from nori.tools.web_client import WebClient

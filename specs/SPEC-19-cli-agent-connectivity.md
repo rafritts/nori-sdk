@@ -36,7 +36,7 @@ from nori.tools import Bash, FileRead, WebSearch
 
 agent = Agent(
     name="assistant",
-    model=Model(id="grok-4.3", provider=Provider.GROK_CLI),
+    model=Model(id="grok-4.5", provider=Provider.GROK_CLI),
     tools=[Bash, FileRead, WebSearch],
 )
 await agent.run("Summarize the top-level modules in this repo")
@@ -244,7 +244,7 @@ from nori.tools import Bash, FileSearch
 # Grok installed + logged in, no XAI_API_KEY
 agent = Agent(
     name="dev",
-    model=Model(id="grok-4.3", provider=Provider.GROK_CLI),
+    model=Model(id="grok-4.5", provider=Provider.GROK_CLI),
     tools=[Bash, FileSearch],
 )
 
@@ -265,7 +265,7 @@ agent = Agent(
 
 CLI providers are also valid in `nori.configure(model=...)` and `tool_models={...}`.
 
-Nori's own CLI (`nori --provider grok_cli --model grok-4.3 "…"`) should accept the new provider names via the existing `Provider[name.upper()]` path.
+Nori's own CLI (`nori --provider grok_cli --model grok-4.5 "…"`) should accept the new provider names via the existing `Provider[name.upper()]` path.
 
 ---
 

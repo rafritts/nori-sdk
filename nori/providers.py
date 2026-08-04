@@ -19,6 +19,11 @@ class Provider(Enum):
     OLLAMA     = ("http://localhost:11434/v1",                                "OLLAMA_API_KEY")
     # base_url is region-dependent; built at Model init time. api_key not used (SigV4 auth).
     BEDROCK    = ("__bedrock__",                                              None)
+    # CLI connectivity backends — no API key; binary must be on PATH and authenticated.
+    # value = (binary_name, None). base_url is unused.
+    GROK_CLI   = ("grok",   None)
+    CLAUDE_CLI = ("claude", None)
+    CODEX_CLI  = ("codex",  None)
 
     @property
     def base_url(self) -> str:
@@ -28,6 +33,15 @@ class Provider(Enum):
     def api_key(self) -> str | None:
         env_var = self.value[1]
         return os.getenv(env_var) if env_var else None
+
+    @property
+    def is_cli(self) -> bool:
+        return self in CLI_PROVIDERS
+
+    @property
+    def cli_binary(self) -> str | None:
+        """Binary name for CLI providers; None for HTTP providers."""
+        return self.value[0] if self.is_cli else None
 
 
 def make_bedrock_http_client(region: str) -> object:
@@ -70,9 +84,13 @@ def make_bedrock_http_client(region: str) -> object:
     return httpx.AsyncClient(auth=_SigV4Auth(boto3.Session(), region))
 
 
+# CLI connectivity backends (no API key; binary on PATH).
+CLI_PROVIDERS = frozenset({Provider.GROK_CLI, Provider.CLAUDE_CLI, Provider.CODEX_CLI})
+
+
 # ── Pricing ───────────────────────────────────────────────────────────────────
 # $ per 1M tokens, input and output. Unknown models return 0.0.
-# Groq, OpenRouter, and Ollama are omitted: variable/free pricing.
+# Groq, OpenRouter, Ollama, and CLI providers are omitted: variable/free/subscription.
 
 @dataclass(frozen=True)
 class _Price:
@@ -92,6 +110,7 @@ _PRICING: dict[str, _Price] = {
     "claude-sonnet-4-6":            _Price(prompt=3.00,  completion=15.00),
     "claude-haiku-4-5":             _Price(prompt=1.00,  completion=5.00),
     # xAI
+    "grok-4.5":                     _Price(prompt=1.25,  completion=2.50),
     "grok-4.3":                     _Price(prompt=1.25,  completion=2.50),
     "grok-4-1-fast-reasoning":      _Price(prompt=0.20,  completion=0.50),
     # Google

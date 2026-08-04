@@ -1,8 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-from openai import AsyncOpenAI
-
 from nori.enums import ContextRole
 
 
@@ -22,7 +20,7 @@ _SUMMARY_MARKER = "__running_summary__"
 async def update_running_summary(
     history: list[dict],
     current_summary: str,
-    client: AsyncOpenAI,
+    completer,
     model: str,
 ) -> str:
     recent = [m for m in history if m.get("role") != "system" and m.get("_marker") != _SUMMARY_MARKER]
@@ -37,11 +35,11 @@ async def update_running_summary(
         f"Current summary:\n{current_summary}\n\n"
         f"Recent activity:\n{turns_text}"
     )
-    response = await client.chat.completions.create(
+    result = await completer.complete(
         model=model,
         messages=[{"role": "user", "content": prompt}],
     )
-    return response.choices[0].message.content or current_summary
+    return result.message.content or current_summary
 
 
 def inject_summary(history: list[dict], summary: str) -> list[dict]:

@@ -1,7 +1,5 @@
 from dataclasses import dataclass
 
-from openai import AsyncOpenAI
-
 from nori.enums import CheckpointScrutiny
 
 
@@ -35,7 +33,7 @@ _SCRUTINY_PROMPTS = {
 async def evaluate_checkpoint(
     recent_turns: list[dict],
     scrutiny: CheckpointScrutiny,
-    client: AsyncOpenAI,
+    completer,
     model: str,
 ) -> tuple[bool, str]:
     """Returns (is_spinning, summary_of_recent_turns)."""
@@ -50,14 +48,14 @@ async def evaluate_checkpoint(
         f"Recent turns:\n{turns_text}"
     )
 
-    response = await client.chat.completions.create(
+    result = await completer.complete(
         model=model,
         messages=[
             {"role": "system", "content": system},
             {"role": "user", "content": prompt},
         ],
     )
-    text = response.choices[0].message.content or ""
+    text = result.message.content or ""
     lines = [l.strip() for l in text.strip().splitlines() if l.strip()]
     verdict = lines[-1].upper() if lines else "PROGRESS"
     summary = "\n".join(lines[:-1]) if len(lines) > 1 else text

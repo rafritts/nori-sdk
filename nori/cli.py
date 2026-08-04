@@ -114,7 +114,7 @@ def main():
     parser = argparse.ArgumentParser(prog="nori", description="Run a Nori agent from the command line.")
     parser.add_argument("prompt", nargs="?", default=None, help="The prompt to send to the agent.")
     parser.add_argument("--provider", default=None, help="Provider name (e.g. xai, openai, anthropic).")
-    parser.add_argument("--model", default=None, help="Model ID (e.g. grok-4.3).")
+    parser.add_argument("--model", default=None, help="Model ID (e.g. grok-4.5).")
     parser.add_argument("--no-narration", action="store_true", default=False, help="Suppress agent narration.")
     parser.add_argument("--no-sandbox", action="store_true", default=False, help="Allow tools to access paths outside the current directory.")
     parser.add_argument("--repl", action="store_true", default=False, help="Stay in a conversation loop after each response.")
@@ -130,7 +130,8 @@ def main():
         print(
             "Error: provider and model are required.\n"
             "Set NORI_CLI_PROVIDER and NORI_CLI_MODEL in your .env, or use --provider and --model flags.\n"
-            "Example: nori --provider xai --model grok-4.3 \"your prompt\"",
+            "Example: nori --provider xai --model grok-4.5 \"your prompt\"\n"
+            "Or without an API key: nori --provider grok_cli --model grok-4.5 \"your prompt\"",
             file=sys.stderr,
         )
         sys.exit(1)

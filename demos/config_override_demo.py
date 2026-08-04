@@ -2,7 +2,7 @@
 Config override demo: shows how to import the shared config and override
 specific fields for individual agents.
 
-Imports config (which sets grok-4.3 as the default model and max_turns=10),
+Imports config (which sets grok-4.5 as the default model and max_turns=10),
 then constructs three agents:
   1. Default agent       — uses everything from config, no overrides
   2. Fast agent          — overrides model to grok-4-1-fast-reasoning

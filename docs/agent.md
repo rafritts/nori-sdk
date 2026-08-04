@@ -63,7 +63,7 @@ from nori import Model
 from nori.providers import Provider
 
 nori.configure(
-    model=Model(id="grok-4", provider=Provider.XAI),
+    model=Model(id="grok-4.5", provider=Provider.XAI),
     max_turns=15,
     tool_timeout=30.0,
     run_timeout=120.0,

@@ -121,6 +121,10 @@ class CliCompleter:
             user_prompt = f"[system]\n{system}\n\n{user_prompt}"
             system = None
 
+        # Grok (and any backend that persists by default): pin a session id so
+        # we can delete the one-shot chat after the run.
+        session_id = self.backend.allocate_session_id()
+
         prompt_file = None
         stdin_data: str | None = None
         try:
@@ -132,6 +136,7 @@ class CliCompleter:
                     system=system,
                     prompt=user_prompt,
                     prompt_file=str(prompt_file),
+                    session_id=session_id,
                 )
             elif self.backend.prompt_mode == "stdin":
                 stdin_data = user_prompt
@@ -140,6 +145,7 @@ class CliCompleter:
                     model=model,
                     system=system,
                     prompt=user_prompt,
+                    session_id=session_id,
                 )
             else:
                 argv = self.backend.build_argv(
@@ -147,6 +153,7 @@ class CliCompleter:
                     model=model,
                     system=system,
                     prompt=user_prompt,
+                    session_id=session_id,
                 )
 
             logger.debug("cli_complete binary=%s argv0=%s", self.binary_path, argv[:4])
@@ -167,6 +174,39 @@ class CliCompleter:
                     prompt_file.unlink(missing_ok=True)
                 except OSError:
                     pass
+            if session_id:
+                await self._cleanup_session(session_id)
+
+    async def _cleanup_session(self, session_id: str) -> None:
+        """Best-effort delete of a one-shot CLI session. Never raises."""
+        argv = self.backend.cleanup_session_argv(
+            binary=self.binary_path, session_id=session_id
+        )
+        if not argv:
+            return
+        try:
+            _stdout, stderr, code = await _run_subprocess(argv, timeout=30.0)
+            if code != 0:
+                logger.warning(
+                    "cli_session_cleanup failed binary=%s session_id=%s code=%s stderr=%s",
+                    self.backend.binary,
+                    session_id,
+                    code,
+                    (stderr or "")[:500],
+                )
+            else:
+                logger.debug(
+                    "cli_session_cleanup deleted binary=%s session_id=%s",
+                    self.backend.binary,
+                    session_id,
+                )
+        except Exception as exc:
+            logger.warning(
+                "cli_session_cleanup error binary=%s session_id=%s err=%s",
+                self.backend.binary,
+                session_id,
+                exc,
+            )
 
 
 # ── Serialization / parsing ───────────────────────────────────────────────────

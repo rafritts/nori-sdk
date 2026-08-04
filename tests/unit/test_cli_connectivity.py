@@ -57,12 +57,15 @@ def test_model_cli_path_field():
 
 def test_grok_argv_disables_tools_and_uses_json():
     backend = GrokCliBackend()
+    sid = backend.allocate_session_id()
+    assert sid  # grok always allocates so we can delete after
     argv = backend.build_argv(
         binary="/usr/bin/grok",
         model="grok-4.5",
         system="You are helpful.",
         prompt="hi",
         prompt_file="/tmp/prompt.txt",
+        session_id=sid,
     )
     assert argv[0] == "/usr/bin/grok"
     assert "--tools" in argv and argv[argv.index("--tools") + 1] == ""
@@ -70,10 +73,15 @@ def test_grok_argv_disables_tools_and_uses_json():
     assert "-m" in argv and argv[argv.index("-m") + 1] == "grok-4.5"
     assert "--prompt-file" in argv
     assert "--system-prompt-override" in argv
+    assert "--session-id" in argv and argv[argv.index("--session-id") + 1] == sid
+    assert backend.cleanup_session_argv(binary="/usr/bin/grok", session_id=sid) == [
+        "/usr/bin/grok", "sessions", "delete", sid,
+    ]
 
 
-def test_claude_argv_disables_tools():
+def test_claude_argv_disables_tools_and_skips_session_persist():
     backend = ClaudeCliBackend()
+    assert backend.allocate_session_id() is None
     argv = backend.build_argv(
         binary="/usr/bin/claude",
         model="claude-sonnet-4-6",
@@ -86,10 +94,12 @@ def test_claude_argv_disables_tools():
     assert "--output-format" in argv and argv[argv.index("--output-format") + 1] == "json"
     assert "--model" in argv and argv[argv.index("--model") + 1] == "claude-sonnet-4-6"
     assert "--system-prompt" in argv
+    assert "--no-session-persistence" in argv
 
 
-def test_codex_argv_uses_exec():
+def test_codex_argv_uses_exec_and_ephemeral():
     backend = CodexCliBackend()
+    assert backend.allocate_session_id() is None
     argv = backend.build_argv(
         binary="codex",
         model="gpt-5.4",
@@ -99,6 +109,7 @@ def test_codex_argv_uses_exec():
     assert argv[:2] == ["codex", "exec"]
     assert "-m" in argv and argv[argv.index("-m") + 1] == "gpt-5.4"
     assert "--json" in argv
+    assert "--ephemeral" in argv
     assert argv[-1] == "-"
 
 
@@ -216,12 +227,15 @@ def test_cli_completer_missing_binary(monkeypatch):
 
 async def test_cli_completer_complete_parses_envelope(monkeypatch, tmp_path):
     monkeypatch.setattr("nori.completer.shutil.which", lambda _: "/usr/bin/grok")
+    seen: list[list[str]] = []
 
     async def fake_run(argv, stdin_data=None, timeout=None):
+        seen.append(list(argv))
+        if len(argv) >= 3 and argv[1:3] == ["sessions", "delete"]:
+            return "", "", 0
         return json.dumps({"content": "hi from cli"}), "", 0
 
     monkeypatch.setattr("nori.completer._run_subprocess", fake_run)
-    # Avoid real temp-file issues — still exercise file mode
     completer = CliCompleter(GrokCliBackend(), binary_path="/usr/bin/grok")
     result = await completer.complete(
         model="grok-4.5",
@@ -229,6 +243,31 @@ async def test_cli_completer_complete_parses_envelope(monkeypatch, tmp_path):
     )
     assert isinstance(result, CompletionResult)
     assert result.message.content == "hi from cli"
+    # Completion + session delete
+    assert len(seen) == 2
+    assert "--session-id" in seen[0]
+    sid = seen[0][seen[0].index("--session-id") + 1]
+    assert seen[1] == ["/usr/bin/grok", "sessions", "delete", sid]
+
+
+async def test_cli_completer_deletes_session_even_on_error(monkeypatch):
+    monkeypatch.setattr("nori.completer.shutil.which", lambda _: "/usr/bin/grok")
+    seen: list[list[str]] = []
+
+    async def fake_run(argv, stdin_data=None, timeout=None):
+        seen.append(list(argv))
+        if len(argv) >= 3 and argv[1:3] == ["sessions", "delete"]:
+            return "", "", 0
+        return "", "boom", 2
+
+    monkeypatch.setattr("nori.completer._run_subprocess", fake_run)
+    completer = CliCompleter(GrokCliBackend(), binary_path="/usr/bin/grok")
+    with pytest.raises(RuntimeError, match="exited with code 2"):
+        await completer.complete(
+            model="grok-4.5",
+            messages=[{"role": "user", "content": "hi"}],
+        )
+    assert any(a[1:3] == ["sessions", "delete"] for a in seen if len(a) >= 3)
 
 
 async def test_cli_completer_nonzero_exit(monkeypatch):

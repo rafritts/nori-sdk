@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import tempfile
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -27,6 +28,15 @@ class CliBackend:
     prompt_mode: PromptMode
     install_hint: str
 
+    def allocate_session_id(self) -> str | None:
+        """Pre-allocate a session id when the CLI persists by default (e.g. Grok).
+
+        Returned id is passed to ``build_argv`` and deleted via
+        ``cleanup_session_argv`` after the run so one-shot completions do not
+        pile up in the user's session history.
+        """
+        return None
+
     def build_argv(
         self,
         *,
@@ -35,8 +45,13 @@ class CliBackend:
         system: str | None,
         prompt: str,
         prompt_file: str | None = None,
+        session_id: str | None = None,
     ) -> list[str]:
         raise NotImplementedError
+
+    def cleanup_session_argv(self, *, binary: str, session_id: str) -> list[str] | None:
+        """Argv to delete a persisted session, or None if nothing to delete."""
+        return None
 
     def extract_text(self, stdout: str) -> str:
         """Pull the model reply text out of vendor JSON (or return raw stdout)."""
@@ -63,6 +78,10 @@ class GrokCliBackend(CliBackend):
         "See https://docs.x.ai/ or `grok --help`."
     )
 
+    def allocate_session_id(self) -> str | None:
+        # Grok always persists sessions; pin an id so we can delete it after.
+        return str(uuid.uuid4())
+
     def build_argv(
         self,
         *,
@@ -71,6 +90,7 @@ class GrokCliBackend(CliBackend):
         system: str | None,
         prompt: str,
         prompt_file: str | None = None,
+        session_id: str | None = None,
     ) -> list[str]:
         argv = [
             binary,
@@ -78,6 +98,8 @@ class GrokCliBackend(CliBackend):
             "--tools", "",
             "-m", model,
         ]
+        if session_id:
+            argv.extend(["--session-id", session_id])
         if system:
             argv.extend(["--system-prompt-override", system])
         if prompt_file:
@@ -85,6 +107,9 @@ class GrokCliBackend(CliBackend):
         else:
             argv.extend(["-p", prompt])
         return argv
+
+    def cleanup_session_argv(self, *, binary: str, session_id: str) -> list[str] | None:
+        return [binary, "sessions", "delete", session_id]
 
 
 @dataclass(frozen=True)
@@ -105,8 +130,10 @@ class ClaudeCliBackend(CliBackend):
         system: str | None,
         prompt: str,
         prompt_file: str | None = None,
+        session_id: str | None = None,
     ) -> list[str]:
         # -p with no prompt arg: read prompt from stdin.
+        # --no-session-persistence: do not write the chat to disk (print mode only).
         argv = [
             binary,
             "-p",
@@ -114,6 +141,7 @@ class ClaudeCliBackend(CliBackend):
             "--tools", "",
             "--model", model,
             "--permission-mode", "dontAsk",
+            "--no-session-persistence",
         ]
         if system:
             argv.extend(["--system-prompt", system])
@@ -157,14 +185,16 @@ class CodexCliBackend(CliBackend):
         system: str | None,
         prompt: str,
         prompt_file: str | None = None,
+        session_id: str | None = None,
     ) -> list[str]:
         # `codex exec` is non-interactive. `-` means read prompt from stdin.
-        # Sandbox read-only + skip git check; tool surface still depends on codex version.
+        # --ephemeral: do not persist session files.
         argv = [
             binary, "exec",
             "-m", model,
             "--skip-git-repo-check",
             "--json",
+            "--ephemeral",
             "-s", "read-only",
             "-",
         ]

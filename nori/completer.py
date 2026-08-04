@@ -163,8 +163,20 @@ class CliCompleter:
 
 # ── Serialization / parsing ───────────────────────────────────────────────────
 
-_ENVELOPE_INSTRUCTIONS = """\
+# Always injected into the CLI system prompt. Flags like --tools "" are the hard
+# control; this is the belt-and-suspenders instruction for the model.
+_CLI_NO_NATIVE_TOOLS = """\
+[Nori / CLI connectivity]
 You are being driven by the Nori agent framework through a headless CLI.
+DO NOT USE YOUR OWN TOOLS. You have no built-in agent tools in this mode.
+Do not call or attempt Bash, Edit, Read, Write, Glob, Grep, WebSearch, Shell,
+or any other CLI-native / vendor tool. Do not run shell commands, edit files,
+or browse the web yourself.
+If tools are needed, call only the Nori tools listed in the prompt via the JSON
+envelope. If no Nori tools are listed, reply with final text only.
+"""
+
+_ENVELOPE_INSTRUCTIONS = """\
 Reply with ONLY a single JSON object (no markdown fences) in one of these forms:
 
 Final answer (no tools):
@@ -176,6 +188,7 @@ One or more Nori tool calls:
 Optional short status plus tools:
 {"content":"brief status","tool_calls":[{"id":"call_1","name":"ToolName","arguments":{...}}]}
 
+DO NOT USE YOUR OWN (CLI-native) TOOLS. Only the Nori tools listed below exist.
 Do not invent tools that are not listed. Do not run shell commands yourself — call Nori tools.
 Arguments must be a JSON object, not a string.
 """
@@ -188,7 +201,7 @@ def serialize_for_cli(
     tool_choice: str | dict | None = None,
 ) -> tuple[str | None, str]:
     """Return (system_prompt, user_blob) for a single CLI invocation."""
-    system_parts: list[str] = []
+    system_parts: list[str] = [_CLI_NO_NATIVE_TOOLS.strip()]
     conversation: list[str] = []
 
     for m in messages:
@@ -222,7 +235,7 @@ def serialize_for_cli(
         else:
             conversation.append(f"{role}: {content}")
 
-    system = "\n\n".join(system_parts) if system_parts else None
+    system = "\n\n".join(system_parts)
 
     body_parts = ["[conversation]", "\n".join(conversation) if conversation else "(empty)"]
 
@@ -261,6 +274,7 @@ def serialize_for_cli(
         body_parts.append(json.dumps(schemas, indent=2, ensure_ascii=False))
     else:
         body_parts.append(
+            "DO NOT USE YOUR OWN TOOLS. No Nori tools are available this turn.\n"
             'Reply with ONLY: {"content":"your reply"}  (single JSON object, no fences).'
         )
 

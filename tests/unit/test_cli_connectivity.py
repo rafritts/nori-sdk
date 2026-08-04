@@ -195,11 +195,22 @@ def test_serialize_includes_tools_and_history():
         },
     }]
     system, body = serialize_for_cli(messages, tools=tools)
-    assert system == "Be concise."
+    assert system is not None
+    assert "DO NOT USE YOUR OWN TOOLS" in system
+    assert "Be concise." in system
     assert "list files" in body
     assert "Bash" in body
     assert "tool_calls" in body
     assert "Available tools" in body
+    assert "DO NOT USE YOUR OWN (CLI-native) TOOLS" in body
+
+
+def test_serialize_always_bans_cli_native_tools():
+    system, body = serialize_for_cli([{"role": "user", "content": "hi"}])
+    assert system is not None
+    assert "DO NOT USE YOUR OWN TOOLS" in system
+    assert "no built-in agent tools" in system.lower()
+    assert "DO NOT USE YOUR OWN TOOLS" in body
 
 
 def test_serialize_tool_choice_none():

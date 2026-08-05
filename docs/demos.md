@@ -3,13 +3,13 @@
 Every demo is a complete, runnable Python file — imports, setup, and `asyncio.run(main())` included. Clone the repo and run any of them directly.
 
 ```bash
-git clone https://github.com/rafritts/nori
-cd nori
+git clone https://github.com/rafritts/nori-sdk
+cd nori-sdk
 uv sync
 python demos/easy_demo.py
 ```
 
-Most demos require `NORI_CLI_PROVIDER` and `NORI_CLI_MODEL` (or equivalent) in your `.env`.
+Most demos require API credentials (or a CLI provider) and typically set the model via `demos/config.py` or `nori.configure(...)`. For the `nori` CLI itself, set `NORI_CLI_PROVIDER` and `NORI_CLI_MODEL` in your `.env`.
 
 ---
 
@@ -59,6 +59,7 @@ Most demos require `NORI_CLI_PROVIDER` and `NORI_CLI_MODEL` (or equivalent) in y
 | [`hitl_demo.py`](https://github.com/rafritts/nori-sdk/blob/master/demos/hitl_demo.py) | HumanInput — agent pauses and waits for approval. |
 | [`self_modify_demo.py`](https://github.com/rafritts/nori-sdk/blob/master/demos/self_modify_demo.py) | All three self-modification tiers: custodian, modify, mutation. |
 | [`context_demo.py`](https://github.com/rafritts/nori-sdk/blob/master/demos/context_demo.py) | Running context summaries and autocompaction. |
+| [`chatbot_demo.py`](https://github.com/rafritts/nori-sdk/blob/master/demos/chatbot_demo.py) | OpenAI-compatible chat server via `serve()`. |
 
 ## Configuration & Observability
 

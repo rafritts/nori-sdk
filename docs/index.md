@@ -25,6 +25,9 @@ uv add "nori-sdk[browser]"    # Playwright-based browser tools
 uv add "nori-sdk[postgres]"   # Postgres tools
 uv add "nori-sdk[redis]"      # Redis tools
 uv add "nori-sdk[mongo]"      # MongoDB tools
+uv add "nori-sdk[mcp]"        # Model Context Protocol client
+uv add "nori-sdk[server]"     # Embedded HITL server (HumanInput)
+uv add "nori-sdk[bedrock]"    # AWS Bedrock provider
 uv add "nori-sdk[all]"        # Everything
 ```
 
@@ -34,8 +37,12 @@ uv add "nori-sdk[all]"        # Everything
 
 ```python
 import asyncio
-from nori import Agent
+import nori
+from nori import Agent, Model
+from nori.providers import Provider
 from nori.tools.bash import Bash
+
+nori.configure(model=Model(id="grok-4.5", provider=Provider.XAI))
 
 async def main():
     agent = Agent(
@@ -49,7 +56,7 @@ async def main():
 asyncio.run(main())
 ```
 
-That's it. No boilerplate, no configuration required. The agent runs, calls `Bash` if it needs to, and returns a string.
+Every agent needs a model — set it once with `nori.configure()`, or pass `model=` to `Agent(...)`.
 
 ---
 
@@ -57,13 +64,14 @@ That's it. No boilerplate, no configuration required. The agent runs, calls `Bas
 
 | Concern | What Nori provides |
 |---|---|
-| Tools | 20+ built-in tools across files, shell, web, git, databases, and more |
-| Context management | Autocompaction at 85% fill, running summaries, manual `Compact` tool |
+| Tools | 20+ built-in tools across files, shell, web, browser, git, databases, and more |
+| Context management | Autocompaction at 85% fill, running summaries, optional `Compact` tool |
 | Anti-spin | Checkpoint-based loop detection with configurable scrutiny |
 | Permissions | Allow-list or deny-list with glob support |
 | Observability | Narration, structured audit log with B3 tracing, cost tracking |
 | MCP | First-class `MCPServer` with curated factories |
-| Orchestration | Agents are tools — pass one agent as a tool to another |
+| Orchestration | Agents as tools, `nori.map`, `nori.pipeline`, parallel tool dispatch |
+| Serving | OpenAI-compatible chat API via `serve()` |
 | CLI | Quick-fire agents from the terminal for prototyping |
 
 ---

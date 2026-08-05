@@ -13,7 +13,7 @@ from nori import Agent, Model
 from nori.providers import Provider
 from nori.tools.bash import Bash
 
-nori.configure(model=Model(id="grok-4", provider=Provider.XAI))
+nori.configure(model=Model(id="grok-4.5", provider=Provider.XAI))
 
 agent = Agent(
     name="Ops",
@@ -37,6 +37,8 @@ uv add "nori-sdk[browser]"   # Playwright browser tools
 uv add "nori-sdk[postgres]"  # Postgres tools
 uv add "nori-sdk[redis]"     # Redis tools
 uv add "nori-sdk[mongo]"     # MongoDB tools
+uv add "nori-sdk[mcp]"       # Model Context Protocol client
+uv add "nori-sdk[server]"    # HumanInput HITL server
 uv add "nori-sdk[all]"       # everything
 ```
 
@@ -180,7 +182,11 @@ from nori.mcp.servers import Filesystem, GitHub, Postgres
 agent = Agent(
     name="RepoBot",
     system_prompt="...",
-    mcp_servers=[Filesystem("/tmp"), GitHub(token="...")],
+    mcp_servers=[
+        Filesystem(path="/tmp"),
+        GitHub(token="..."),
+        # or: MCPServer(name="custom", command="npx", args=[...])
+    ],
 )
 ```
 

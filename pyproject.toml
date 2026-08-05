@@ -15,7 +15,7 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://nori-sdk.com"
-Repository = "https://github.com/restlessapi/nori"
+Repository = "https://github.com/rafritts/nori-sdk"
 
 [project.scripts]
 nori = "nori.cli:main"

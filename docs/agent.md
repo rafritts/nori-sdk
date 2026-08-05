@@ -3,8 +3,12 @@
 `Agent` is the core construct. It owns a tool-calling loop: send a message, get a response, execute any tool calls, repeat until the model stops calling tools or a limit is hit.
 
 ```python
-from nori import Agent
+import nori
+from nori import Agent, Model
+from nori.providers import Provider
 from nori.tools.bash import Bash
+
+nori.configure(model=Model(id="grok-4.5", provider=Provider.XAI))
 
 agent = Agent(
     name="MyAgent",
@@ -16,14 +20,16 @@ agent = Agent(
 result = await agent.run("What files are in /tmp?")
 ```
 
+A model is required — pass `model=` or call `nori.configure(model=...)` first.
+
 ---
 
 ## User-facing text during tool use
 
-While tools are running, free-form assistant `content` is **not** streamed to the user. Instead:
+While tools are running, free-form assistant `content` is **not** treated as the final answer. Instead:
 
 1. Each tool schema includes an optional **`update_for_user`** string (one sentence). When present, it is delivered via `on_assistant_content` as that tool starts.
-2. When the model stops calling tools after at least one tool ran, nori injects a system turn (*“Provide the user with a final output”*) and completes once more with `tool_choice="none"`. That reply is the user-facing final answer.
+2. When the model stops calling tools after at least one tool ran, Nori injects a system turn (*“Provide the user with a final output”*) and completes once more with `tool_choice="none"`. That reply is the user-facing final answer.
 
 Runs that never call tools behave as before: the no-tool assistant message is the final reply.
 
@@ -37,9 +43,10 @@ Runs that never call tools behave as before: the no-tool assistant message is th
 | `system_prompt` | `str` | `""` | The agent's system prompt |
 | `model` | `Model` | from config | Model to use; falls back to `nori.configure()` |
 | `tools` | `list` | `[]` | Tools available in every turn |
+| `mcp_servers` | `list[MCPServer]` | `[]` | MCP servers connected for the duration of each run |
 | `deferred_tools` | `list \| dict` | `None` | Tools loaded lazily (see below) |
 | `show_tool_stubs` | `bool` | `False` | Show deferred tool stubs in the schema |
-| `max_turns` | `int \| None` | from config | Turn limit; `None` removes the ceiling |
+| `max_turns` | `int \| None` | from config, else `10` | Turn limit; `None` removes the ceiling |
 | `description` | `str` | `""` | Used when the agent is passed as a tool |
 | `context_files` | `list[ContextFile]` | `None` | Files injected into conversation at start |
 | `permissions` | `Permissions` | `None` | Allow or deny specific tools |
@@ -50,6 +57,15 @@ Runs that never call tools behave as before: the no-tool assistant message is th
 | `tool_timeout` | `float \| None` | from config | Per-tool call timeout in seconds |
 | `run_timeout` | `float \| None` | from config | Total run timeout in seconds |
 | `scratchpad` | `Scratchpad` | `None` | Shared scratchpad for multi-agent state |
+| `output_format` | `OutputFormat` | `TEXT` | Return type of `run()`: plain text or OpenAI message shapes |
+| `tool_args_filter` | `callable` | `None` | Rewrite tool args at invoke time `(name, args) → args` |
+| `tool_schema_filter` | `callable` | `None` | Mutate tool schemas before the model sees them |
+| `require_no_tools_ack` | `bool` | `False` | Require `NO_TOOL_CALLS` (or a tool call) before ending a no-tool turn |
+| `no_tools_ack_max` | `int` | `3` | Max no-tools challenge retries |
+| `no_tools_ack_message` | `str \| None` | `None` | Override the no-tools challenge text |
+| `force_tool` | `str \| None` | `None` | Force `tool_choice` to this function until any tool runs |
+
+CLI connectivity providers (`Provider.GROK_CLI`, `CLAUDE_CLI`, `CODEX_CLI`) reject agents that pass tools, deferred tools, MCP servers, scratchpad, self-modify, or `force_tool`.
 
 ---
 
@@ -70,6 +86,8 @@ nori.configure(
 )
 ```
 
+Other `configure()` options: `tool_models` (per-tool model overrides), `server` (HITL server: `True` or a dict with `host`/`port`/`token`), `notify` (Slack/webhook defaults for `Notify`), `control_tower` + `project` (remote audit stream).
+
 Override any default per-agent by passing the parameter directly to `Agent(...)`. See [`config_override_demo.py`](https://github.com/rafritts/nori-sdk/blob/master/demos/config_override_demo.py) for a full example.
 
 ---
@@ -80,14 +98,37 @@ Override any default per-agent by passing the parameter directly to `Agent(...)`
 result = await agent.run("Your task here")
 ```
 
-`run()` returns the agent's final text response as a string. After the run:
+`run()` returns the agent's final text response as a string by default (`OutputFormat.TEXT`). After the run:
 
 ```python
-agent.turn_count   # how many turns were used
-agent.tool_calls   # list of all tool call records
-agent.cost         # total cost in USD
-agent.trace_id     # B3 trace ID for this run
-agent.history      # full message history
+agent.turn_count      # how many turns were used
+agent.tool_calls      # list of all tool call records
+agent.cost            # total cost in USD (provider ticks when available)
+agent.token_counts    # {prompt, completion, reasoning, cached, total}
+agent.elapsed         # seconds for the last run, or None
+agent.trace_id        # B3 trace ID for this run
+agent.history         # full message history
+```
+
+### Images
+
+Pass vision inputs via `images=`:
+
+```python
+from nori import Image
+
+result = await agent.run(
+    "Describe this screenshot.",
+    images=[Image(path="shot.png")],
+)
+```
+
+`Image` accepts exactly one of `path`, `url`, or `data`. Optional: `detail`, `resize`, `output_format`, `remove_from_context_after_read`.
+
+### Reset
+
+```python
+agent.reset()  # clear history, counters, and run state
 ```
 
 ---
@@ -142,15 +183,22 @@ agent = Agent(
 )
 ```
 
+`deferred_tools` can also be a dict of named groups for batch expand.
+
 ---
 
 ## Runtime callbacks
 
 ```python
 agent.narration = True                        # print tool calls as they happen
-agent.on_narration = lambda msg: log(msg)     # custom handler
+agent.on_narration = lambda msg: log(msg)     # custom narration handler
 agent.narrator_prefix = "[agent1] "           # prefix for multi-agent disambiguation
+agent.on_assistant_content = lambda text: ... # mid-run user-facing status / final prose
 agent.on_tool_result = lambda name, result, call_id, trace_id: ...
 ```
+
+Narration knobs: `narration_call_id` (default `True`), `narration_trace_id` (default `False`), `narration_summary` (default `True`).
+
+Optional run-time attributes: `conversation_id` (sticky id for provider prompt-cache routing), `dynamic_context` (appended after each user prompt so the system message stays a stable cache prefix).
 
 See [Observability](observability.md) for full details.

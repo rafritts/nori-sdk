@@ -8,6 +8,8 @@ Any agent that has both a **content-reading** tool (`WebClient`, `FileRead`, a D
 
 ```python
 from nori import Agent, Permissions
+from nori.tools.file_read import FileRead
+from nori.tools.web_search import WebSearch
 
 agent = Agent(
     name="Reader",

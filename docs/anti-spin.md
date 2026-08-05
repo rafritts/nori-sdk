@@ -2,7 +2,7 @@
 
 Agents can get stuck. A tool returns ambiguous results, the model decides to try again, and suddenly you're 30 turns deep going nowhere. Anti-spin detects this and stops it.
 
-Every N turns, Nori evaluates the agent's recent history using two isolated LLM calls. If both agree the agent isn't making progress, `AntiSpinTerminated` is raised.
+Every N turns, Nori evaluates the agent's recent history with an isolated LLM call. The evaluator summarizes recent progress and returns `SPIN` or `PROGRESS`. On `SPIN`, `AntiSpinTerminated` is raised.
 
 ---
 
@@ -20,6 +20,16 @@ agent = Agent(
 ```
 
 `every=3` means a checkpoint runs every 3 turns. `scrutiny` controls how aggressively the evaluator judges progress.
+
+---
+
+## `Checkpoint` fields
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `every` | `int` | required | Run a checkpoint every N turns (must be &gt; 0) |
+| `scrutiny` | `CheckpointScrutiny` | `MODERATE` | How aggressive the evaluator is |
+| `compact` | `bool` | `False` | If true and not spinning, inject the evaluator's summary into history |
 
 ---
 
@@ -50,7 +60,7 @@ except AntiSpinTerminated as e:
 
 ## `max_turns` vs. anti-spin
 
-`max_turns` is a hard ceiling — the run stops regardless of progress. Anti-spin is smarter: it evaluates whether the agent is actually moving forward and stops early when it isn't.
+`max_turns` is a hard ceiling — the run stops regardless of progress (default is `10` unless configured). Anti-spin is smarter: it evaluates whether the agent is actually moving forward and stops early when it isn't.
 
 Use both together for tight control:
 

@@ -20,6 +20,12 @@ researcher = Agent(
     tools=[web_lookup],
 )
 
+writer = Agent(
+    name="Writer",
+    description="Turns notes into clean prose.",
+    system_prompt="You are a technical writer.",
+)
+
 orchestrator = Agent(
     name="Orchestrator",
     system_prompt=(
@@ -32,7 +38,7 @@ orchestrator = Agent(
 result = await orchestrator.run("Write a comparison of Python and Rust.")
 ```
 
-The `description` field is what the orchestrator sees in the tool schema — make it specific so the model knows when to delegate.
+The `description` field is what the orchestrator sees in the tool schema — make it specific so the model knows when to delegate. Sub-agents run on a fresh clone with their own history; traces propagate from the parent.
 
 See [`agent_as_tool_demo.py`](https://github.com/rafritts/nori-sdk/blob/master/demos/agent_as_tool_demo.py) for a full example with a researcher and writer working under an orchestrator.
 
@@ -40,15 +46,55 @@ See [`agent_as_tool_demo.py`](https://github.com/rafritts/nori-sdk/blob/master/d
 
 ## Parallel dispatch
 
-When an orchestrator calls multiple sub-agents in the same turn, Nori executes them concurrently. The model decides to call several tools at once; Nori runs them in parallel automatically.
+When an orchestrator calls multiple sub-agents (or tools) in the same turn, Nori executes them concurrently. The model decides to call several tools at once; Nori runs them in parallel automatically.
 
 See [`parallel_demo.py`](https://github.com/rafritts/nori-sdk/blob/master/demos/parallel_demo.py) for a multi-agent parallel code review: three specialist reviewers (security, performance, correctness) dispatched simultaneously by an orchestrator, with B3 trace propagation across all four agents.
 
 ---
 
+## `nori.map` and `nori.pipeline`
+
+For fan-out and staged pipelines without an orchestrator model:
+
+```python
+import nori
+
+# Same agent, many inputs, up to 5 concurrent clones
+results = await nori.map(triage, tickets, concurrency=5)
+
+# Stage N+1 starts as soon as stage N emits its first result
+results = await nori.pipeline([classifier, summarizer], documents)
+```
+
+`map` clones the agent per item so parallel runs never share history. `pipeline` chains agents producer-consumer style via queues.
+
+---
+
+## Serve as an OpenAI-compatible API
+
+Expose an agent over HTTP for Open WebUI or any OpenAI client:
+
+```python
+from nori import Agent, serve
+from nori.tools.bash import Bash
+
+def make_agent():
+    return Agent(
+        name="Support",
+        system_prompt="You are a helpful assistant.",
+        tools=[Bash],
+    )
+
+serve(make_agent, port=7732)  # POST http://localhost:7732/v1/chat/completions
+```
+
+See [`chatbot_demo.py`](https://github.com/rafritts/nori-sdk/blob/master/demos/chatbot_demo.py).
+
+---
+
 ## Human-in-the-loop (HITL)
 
-The `HumanInput` tool pauses the agent and waits for a human response before continuing. It requires the embedded server to be enabled.
+The `HumanInput` tool pauses the agent and waits for a human response before continuing. It requires the embedded server to be enabled (`nori-sdk[server]` extra).
 
 ```python
 import nori

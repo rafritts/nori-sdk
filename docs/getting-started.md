@@ -6,6 +6,20 @@
 uv add nori-sdk
 ```
 
+Optional extras when you need them:
+
+```bash
+uv add "nori-sdk[browser]"    # Playwright browser tools
+uv add "nori-sdk[postgres]"   # Postgres
+uv add "nori-sdk[redis]"      # Redis
+uv add "nori-sdk[mongo]"      # MongoDB
+uv add "nori-sdk[mcp]"        # MCP client
+uv add "nori-sdk[server]"     # HumanInput HITL server
+uv add "nori-sdk[bedrock]"    # AWS Bedrock
+uv add "nori-sdk[data]"       # JSONPath helpers for structured-data tools
+uv add "nori-sdk[all]"        # Everything above
+```
+
 ## Set up your environment
 
 Nori uses the OpenAI message format and routes requests through any OpenAI-compatible provider. Set your API key for whichever provider you're using:
@@ -17,11 +31,13 @@ export XAI_API_KEY=your_key_here
 # OpenAI
 export OPENAI_API_KEY=your_key_here
 
-# Anthropic (via compatible proxy)
+# Anthropic (OpenAI-compatible endpoint)
 export ANTHROPIC_API_KEY=your_key_here
 ```
 
 You can also use a `.env` file — Nori loads it automatically via `python-dotenv`.
+
+Supported HTTP providers include `XAI`, `OPENAI`, `ANTHROPIC`, `GROQ`, `DEEPSEEK`, `GOOGLE`, `OPENROUTER`, `KIMI`, `MINIMAX`, `GLM`, `QWEN`, `OLLAMA`, and `BEDROCK` (SigV4; requires the `bedrock` extra).
 
 ### No API key? Use an installed CLI
 
@@ -60,7 +76,9 @@ nori.configure(
 )
 ```
 
-Any agent you create after this inherits the configured model. You can override it per-agent.
+Any agent you create after this inherits the configured model. You can override it per-agent with `Agent(..., model=...)`.
+
+`Model` also accepts `reasoning_effort` (`"none"` / `"low"` / `"medium"` / `"high"`) for providers that support it, `context_window` (defaults to 1M tokens), and `cli_path` for a non-PATH CLI binary.
 
 ## Your first agent
 
@@ -127,7 +145,7 @@ agent = Agent(
 )
 ```
 
-The decorator reads your function's name, docstring, and type annotations to build the schema automatically. See [Tools](tools.md) for more.
+The decorator reads your function's name, docstring, and type annotations to build the schema automatically. It also injects `reason`, `summary`, and optional `update_for_user` parameters. See [Tools](tools.md) for more.
 
 ## Next steps
 

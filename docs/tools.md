@@ -2,7 +2,7 @@
 
 ## Built-in tool library
 
-Nori ships with tools for the most common agent tasks. Every tool has a native version (single call, direct result) and an agentic version (runs a sub-agent with its own context window, returns a summarized result — useful when the output would be too large to fit in the main context).
+Nori ships with tools for the most common agent tasks. Many tools have both a **native** version (single call, direct result) and an **agentic** version (runs a sub-agent with its own context window, returns a summarized result — useful when the output would be too large to fit in the main context).
 
 | Tool | Agentic version | Description |
 |---|---|---|
@@ -17,29 +17,42 @@ Nori ships with tools for the most common agent tasks. Every tool has a native v
 | `WebSearch` | `WebAgent` | Search the web |
 | `WebClient` | — | Fetch and parse web pages |
 | `ApiClient` | — | Make HTTP API calls |
+| `BrowserClient` | — | One-shot Playwright page fetch/extract |
+| `BrowserAgent` | — | Multi-step browser agent |
 | `CodeRunner` | `CodeRunnerAgent` | Execute Python code in isolation |
 | `ViewImage` | — | View images (for vision-capable models) |
 | `Postgres` | `PostgresAgent` | Query a Postgres database |
 | `Redis` | `RedisAgent` | Read and write Redis keys |
 | `Mongo` | `MongoAgent` | Query a MongoDB collection |
-| `HumanInput` | — | Pause and ask a human for input |
+| `HumanInput` | — | Pause and ask a human for input (requires server) |
 | `Notify` | — | Send a notification (Slack, webhook) |
 | `ScratchpadRead` | — | Read from a shared scratchpad |
 | `ScratchpadWrite` | — | Write to a shared scratchpad |
+| `Compact` | — | Voluntarily compact conversation history |
 
-Import from the specific module or from `nori.tools`:
+Browser tools need the `browser` extra. Database tools need their respective extras (`postgres`, `redis`, `mongo`). `HumanInput` needs the `server` extra and `nori.configure(server=True)`.
+
+Import from the specific module (recommended) or from `nori.tools` for the subset re-exported there:
 
 ```python
 from nori.tools.bash import Bash
-from nori.tools.file_read import FileRead, FileReadAgent
-from nori.tools import Git, HumanInput, Notify
+from nori.tools.file_read import FileRead
+from nori.tools.browser import BrowserClient, BrowserAgent
+from nori.tools.compact import Compact
+from nori.tools import Git, HumanInput, Notify  # partial re-exports
 ```
+
+Tool schema **names** match the class/function names above (`Bash`, `FileRead`, …). Use those exact names in `Permissions` allow/deny lists.
 
 ---
 
 ## The `@tool` decorator
 
-`@tool` turns any function into a Nori-compatible tool. It reads the function's name, docstring, and type annotations to build the OpenAI tool schema automatically. It also injects `reason` as a required parameter — the model must state why it's calling the tool before the call goes through.
+`@tool` turns any function into a Nori-compatible tool. It reads the function's name, docstring, and type annotations to build the OpenAI tool schema automatically. It also injects:
+
+- **`reason`** (required) — why the model is calling the tool
+- **`summary`** (required) — one-line narration of what the call found or did
+- **`update_for_user`** (optional) — one-sentence status for the user while the tool runs
 
 ```python
 from nori.tool import tool
@@ -92,6 +105,23 @@ agent = Agent(
 ```
 
 Useful for creating scoped, restricted tool variants from a general-purpose tool.
+
+---
+
+## Compact
+
+`Compact` is a normal tool you opt into by adding it to `tools=`. When called, the agent loop intercepts it and runs the same compaction path as the 85% autocompact threshold.
+
+```python
+from nori.tools.compact import Compact
+
+agent = Agent(
+    name="LongRunner",
+    tools=[Bash, Compact],
+)
+```
+
+Autocompaction at 85% fill always runs whether or not `Compact` is registered.
 
 ---
 

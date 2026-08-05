@@ -5,10 +5,10 @@ Nori supports the Model Context Protocol (MCP) as a first-class concept. An `MCP
 MCP support requires the optional `mcp` extra:
 
 ```bash
-pip install "nori-sdk[mcp]"
+uv add "nori-sdk[mcp]"
 ```
 
-When you pass `mcp_servers=` to an `Agent`, Nori connects to each server at the start of `run()`, discovers its tools via the MCP `tools/list` handshake, and registers them as native tools the model can call (each gets the standard `reason`/`summary` narration fields injected). Tool calls are dispatched over the live connection, and all servers are torn down when the run finishes. A server that fails to connect is logged and skipped — it won't abort the run. Both stdio (`command`/`args`) and HTTP/SSE (`url`) transports are supported.
+When you pass `mcp_servers=` to an `Agent`, Nori connects to each server at the start of `run()`, discovers its tools via the MCP `tools/list` handshake, and registers them as native tools the model can call (each gets the standard `reason`/`summary`/`update_for_user` fields injected). Tool calls are dispatched over the live connection, and all servers are torn down when the run finishes. A server that fails to connect is logged and skipped — it won't abort the run. Both stdio (`command`/`args`) and HTTP/SSE (`url`) transports are supported.
 
 ```python
 from nori.mcp import MCPServer
@@ -27,6 +27,8 @@ agent = Agent(
     ],
 )
 ```
+
+You can also add or remove servers after construction with `agent.add_mcp_server(...)` and `agent.remove_mcp_server(name)`.
 
 ---
 
@@ -68,12 +70,14 @@ MCPServer(
 Nori includes ready-made factory functions for common MCP servers so you don't have to look up the package names and args:
 
 ```python
-from nori.mcp.servers.github import GitHub
-from nori.mcp.servers.filesystem import Filesystem
-from nori.mcp.servers.postgres import Postgres
-from nori.mcp.servers.sqlite import SQLite
-from nori.mcp.servers.slack import Slack
-from nori.mcp.servers.brave_search import BraveSearch
+from nori.mcp.servers import (
+    BraveSearch,
+    Filesystem,
+    GitHub,
+    Postgres,
+    Slack,
+    SQLite,
+)
 
 agent = Agent(
     name="MyAgent",

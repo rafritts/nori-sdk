@@ -1,6 +1,8 @@
 # Permissions
 
-Nori's permission system lets you restrict which tools an agent can call. You provide either an allow list or a deny list — never both. Passing both raises a `RuntimeError` at construction.
+Nori's permission system lets you restrict which tools an agent can call. You provide either an allow list or a deny list — never both. Passing both to `Permissions(...)` raises a `ValueError` at construction.
+
+Matching uses each tool's schema **function name** (e.g. `Bash`, `FileRead`, or the name of a `@tool` function).
 
 ```python
 from nori import Agent, Permissions
@@ -22,6 +24,15 @@ agent = Agent(
 ```
 
 If the agent tries to call `write_file` or `delete_file`, a `ToolPermissionError` is raised and the run halts.
+
+For built-ins, use the tool names as registered:
+
+```python
+from nori.tools.file_read import FileRead
+from nori.tools.web_search import WebSearch
+
+Permissions(allow=["FileRead", "WebSearch"])
+```
 
 ---
 
@@ -45,11 +56,11 @@ agent = Agent(
 Both allow and deny support `fnmatch` glob patterns:
 
 ```python
-# Allow all file tools, block everything else
-Permissions(allow=["file_*"])
+# Allow all tools whose names start with File
+Permissions(allow=["File*"])
 
-# Block all write operations
-Permissions(deny=["*_write", "*_delete", "file_edit"])
+# Block write-style tools
+Permissions(deny=["FileWrite", "FileEdit", "*_write", "*_delete"])
 ```
 
 ---

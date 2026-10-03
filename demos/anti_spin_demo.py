@@ -1,8 +1,9 @@
 """
 Demonstrates Nori's anti-spin checkpoint system.
 
-Anti-spin evaluates the agent's recent history every N turns and raises
-AntiSpinTerminated if it detects the agent is looping without progress.
+Anti-spin asks Jev whether the agent is looping without progress, every N
+turns, and raises AntiSpinTerminated when that probability crosses the
+scrutiny cutoff. Requires TYPESAFE_API_KEY.
 
 Shows:
   1. A healthy agent completing a multi-step task (no spin detected)

@@ -2,7 +2,9 @@
 
 Agents can get stuck. A tool returns ambiguous results, the model decides to try again, and suddenly you're 30 turns deep going nowhere. Anti-spin detects this and stops it.
 
-Every N turns, Nori evaluates the agent's recent history with an isolated LLM call. The evaluator summarizes recent progress and returns `SPIN` or `PROGRESS`. On `SPIN`, `AntiSpinTerminated` is raised.
+Every N turns, Nori asks [Jev](https://docs.typesafe.ai/introduction) one yes/no question about the recent history: is the agent spinning? Jev returns the probability that the answer is yes. Scrutiny is the probability at which Nori stops the run. On a stop, `AntiSpinTerminated` is raised.
+
+The check calls `jev-1.13.0` at TypeSafe and needs `TYPESAFE_API_KEY` (environment variable or a `.env` file). Input is billed at $0.042 per million tokens, and that cost is added to `agent.cost`. A failed call stops the run with that error. It is not treated as progress, and it is not treated as spin.
 
 ---
 
@@ -19,7 +21,7 @@ agent = Agent(
 )
 ```
 
-`every=3` means a checkpoint runs every 3 turns. `scrutiny` controls how aggressively the evaluator judges progress.
+`every=3` means a checkpoint runs every 3 turns. `scrutiny` is how sure Jev has to be before Nori stops the run.
 
 ---
 
@@ -28,20 +30,24 @@ agent = Agent(
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `every` | `int` | required | Run a checkpoint every N turns (must be &gt; 0) |
-| `scrutiny` | `CheckpointScrutiny` | `MODERATE` | How aggressive the evaluator is |
-| `compact` | `bool` | `False` | If true and not spinning, inject the evaluator's summary into history |
+| `scrutiny` | `CheckpointScrutiny` | `MODERATE` | Probability cutoff for stopping |
+| `compact` | `bool` | `False` | If true and not spinning, inject the checkpoint note into history |
 
 ---
 
 ## Scrutiny levels
 
-| Level | Behavior |
+The question is the same at every level: are these turns repeating work without moving the task forward? A retry that tries something new, or that uses new information from the last result, is progress. Scrutiny only changes the cutoff.
+
+| Level | Stop when P(spin) is at least |
 |---|---|
-| `STRICT` | Terminates at the first sign of repetition or stalling |
-| `MODERATE` | Allows some retries; terminates on clear loops |
-| `LENIENT` | Only terminates on obvious, extended spinning |
+| `STRICT` | 0.50 |
+| `MODERATE` | 0.75 |
+| `LENIENT` | 0.90 |
 
 Use `STRICT` for tasks with a well-defined completion condition. Use `LENIENT` for exploratory tasks where the agent legitimately needs multiple attempts.
+
+Jev does not write a summary. With `compact=True`, the note injected into history is the probability, the cutoff, and a short trace of the recent turns (who spoke, which tools ran, and a clip of each result). Image bytes are not sent.
 
 ---
 

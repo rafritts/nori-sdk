@@ -9,7 +9,7 @@ from typing import Callable
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionMessage
 
-from nori.anti_spin import Checkpoint, evaluate_checkpoint
+from nori.anti_spin import Checkpoint, evaluate_checkpoint, task_from_history
 import nori.config as config
 from nori import tower_sink as _tower_sink
 from nori.completer import CliCompleter, Completer, OpenAICompleter
@@ -256,6 +256,8 @@ class Agent:
         self._cached_tokens: int = 0
         # Sum of provider-reported cost_in_usd_ticks converted to USD, when present.
         self._api_cost_usd: float | None = None
+        # Jev input cost for anti-spin checkpoints. Added on top of the chat bill.
+        self._checkpoint_cost_usd: float = 0.0
         # Optional sticky conversation id for prompt-cache routing (x-grok-conv-id).
         # Chat harnesses may stamp this from the client request.
         self.conversation_id: str | None = None
@@ -618,15 +620,16 @@ class Agent:
 
     async def _run_checkpoint(self) -> None:
         recent = self._history[-self._checkpoint.every * 4:]
-        is_spin, summary = await evaluate_checkpoint(
-            recent, self._checkpoint.scrutiny, self._completer, self.model
+        verdict = await evaluate_checkpoint(
+            recent, self._checkpoint.scrutiny, task=task_from_history(self._history)
         )
-        if is_spin:
+        self._checkpoint_cost_usd += verdict.cost_usd
+        if verdict.spinning:
             raise AntiSpinTerminated(
-                f"Anti-spin triggered at turn {self._turn_count}. Summary: {summary}"
+                f"Anti-spin triggered at turn {self._turn_count}. {verdict.note}"
             )
         if self._checkpoint.compact:
-            self._history = inject_summary(self._history, summary)
+            self._history = inject_summary(self._history, verdict.note)
 
     async def _handle_compact_call(self, tc) -> dict:
         await self._compact(fill=self._context_fill())
@@ -1022,14 +1025,17 @@ class Agent:
     @property
     def cost(self) -> float:
         # Prefer provider-reported billed cost (includes cache discounts, reasoning, tools).
+        # Checkpoint cost is a separate Jev bill and is always added.
         if self._api_cost_usd is not None:
-            return self._api_cost_usd
-        return cost_for(
-            self.model,
-            self._prompt_tokens,
-            self._completion_tokens,
-            reasoning_tokens=self._reasoning_tokens,
-        )
+            base = self._api_cost_usd
+        else:
+            base = cost_for(
+                self.model,
+                self._prompt_tokens,
+                self._completion_tokens,
+                reasoning_tokens=self._reasoning_tokens,
+            )
+        return base + self._checkpoint_cost_usd
 
     @property
     def context_length(self) -> int:
@@ -1053,6 +1059,7 @@ class Agent:
         self._reasoning_tokens = 0
         self._cached_tokens = 0
         self._api_cost_usd = None
+        self._checkpoint_cost_usd = 0.0
         self._tool_calls_log = []
         self._running_summary = ""
         self._compact_warning_injected = False

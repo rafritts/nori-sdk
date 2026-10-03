@@ -131,7 +131,7 @@ agent = Agent(
 )
 ```
 
-Every 5 turns, an isolated evaluator reads the recent history and answers one question: *is this agent making progress, or spinning?* Spinning raises `AntiSpinTerminated` instead of burning your budget. Context is managed the same way — a warning lands in the conversation at 70% full, autocompaction into a running summary fires at 85%. You configure nothing.
+Every 5 turns, Jev reads the recent history and returns the probability that the agent is spinning. Scrutiny is that cutoff: 0.50 strict, 0.75 moderate, 0.90 lenient. Crossing it raises `AntiSpinTerminated` instead of burning the rest of the budget. The check needs `TYPESAFE_API_KEY`. Context is managed separately — a warning lands in the conversation at 70% full, and autocompaction into a running summary fires at 85%.
 
 *Run it:* [anti_spin_demo.py](demos/anti_spin_demo.py) · [permissions_demo.py](demos/permissions_demo.py) · [context_demo.py](demos/context_demo.py)
 

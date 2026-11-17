@@ -15,6 +15,27 @@ class ServerConfig:
     token: str | None = None  # auth for HITL endpoints; auto-generated if unset
 
 
+@dataclass
+class DurableConfig:
+    """Crash journal for agent runs. On by default so a killed process can resume."""
+    enabled: bool = True
+    path: str | None = None  # default: $NORI_STATE_PATH or ~/.nori/runs.db
+
+
+def _parse_durable(value) -> DurableConfig:
+    if value is False or value is None:
+        return DurableConfig(enabled=False)
+    if value is True:
+        return DurableConfig(enabled=True)
+    if isinstance(value, str):
+        return DurableConfig(enabled=True, path=value)
+    if isinstance(value, dict):
+        return DurableConfig(enabled=value.get("enabled", True), path=value.get("path"))
+    raise ValueError(
+        "durable must be True, False, a path string, or a dict with path/enabled"
+    )
+
+
 def _parse_server(value) -> ServerConfig:
     if value is False or value is None:
         return ServerConfig(enabled=False)
@@ -39,6 +60,7 @@ class AgentDefaults:
     max_turns: int | None = None
     tool_models: dict = field(default_factory=dict)  # {tool_class: Model}
     server: ServerConfig = field(default_factory=ServerConfig)
+    durable: DurableConfig = field(default_factory=DurableConfig)
     notify: NotifyConfig = field(default_factory=NotifyConfig)
     control_tower: str | None = None
     project: str = "default"
@@ -50,6 +72,7 @@ _defaults = AgentDefaults()
 def configure(**kwargs) -> None:
     tool_models = kwargs.pop("tool_models", None)
     server = kwargs.pop("server", _UNSET)
+    durable = kwargs.pop("durable", _UNSET)
     notify = kwargs.pop("notify", _UNSET)
     control_tower = kwargs.pop("control_tower", _UNSET)
     project = kwargs.pop("project", _UNSET)
@@ -65,6 +88,8 @@ def configure(**kwargs) -> None:
         _defaults.tool_models.update(tool_models)
     if server is not _UNSET:
         _defaults.server = _parse_server(server)
+    if durable is not _UNSET:
+        _defaults.durable = _parse_durable(durable)
     if notify is not _UNSET:
         _defaults.notify = notify if isinstance(notify, NotifyConfig) else NotifyConfig(**notify)
     if control_tower is not _UNSET:

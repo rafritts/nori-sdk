@@ -197,6 +197,15 @@ class Agent:
         self._max_turns = max_turns
         self._history: list[dict] = []
         self._turn_count = 0
+        # Durable-run cursor. Ignored when the journal is off.
+        self.run_id: str | None = None
+        self._journal = None
+        self._resuming = False
+        self._resume_phase = "model"
+        self._tool_status: dict = {}
+        self._durable_result: str | None = None
+        self._tools_settled = False
+        self._run_prompt: str | None = None
         self.narration: bool = False
         self.narrator_prefix: str = ""
         self.on_narration = self._default_narrator
@@ -826,6 +835,15 @@ class Agent:
         return d
 
     async def _invoke_tool(self, tc, is_parallel: bool = False) -> dict:
+        from nori import durable
+        tokens = durable.bind_tool_call(tc.id) if self.run_id else None
+        try:
+            return await self._invoke_tool_body(tc, is_parallel)
+        finally:
+            if tokens is not None:
+                durable.unbind_tool_call(tokens)
+
+    async def _invoke_tool_body(self, tc, is_parallel: bool = False) -> dict:
         if tc.function.name == "Compact":
             return await self._handle_compact_call(tc)
         if tc.function.name == "ExpandTool":
@@ -902,7 +920,23 @@ class Agent:
 
     async def _execute_tools(self, tool_calls) -> list[dict]:
         is_parallel = len(tool_calls) > 1
-        return list(await asyncio.gather(*[self._invoke_tool(tc, is_parallel) for tc in tool_calls]))
+        if self._journal is None:
+            return list(await asyncio.gather(
+                *[self._invoke_tool(tc, is_parallel) for tc in tool_calls]
+            ))
+
+        async def one(tc):
+            prior = self._tool_status.get(tc.id) or {}
+            if prior.get("status") == "done":
+                return prior["result"]
+            self._tool_status[tc.id] = {"status": "started", "result": None}
+            self._persist()
+            msg = await self._invoke_tool(tc, is_parallel)
+            self._tool_status[tc.id] = {"status": "done", "result": msg}
+            self._persist()
+            return msg
+
+        return list(await asyncio.gather(*[one(tc) for tc in tool_calls]))
 
     def _force_tool_active(self) -> bool:
         """True when force_tool is set and no real tool has run yet this run."""
@@ -1074,6 +1108,13 @@ class Agent:
         self.parent_span_id = None
         self._run_start = None
         self._elapsed = None
+        self.run_id = None
+        self._resuming = False
+        self._resume_phase = "model"
+        self._tool_status = {}
+        self._durable_result = None
+        self._tools_settled = False
+        self._run_prompt = None
 
     async def _finish_without_tools_async(self, result: str) -> str:
         """Shared exit path when the run ends on a no-tool turn."""
@@ -1092,74 +1133,312 @@ class Agent:
         )
         return result
 
+    def _reset_turn_flags(self) -> None:
+        self._pending_final_content = None
+        self._no_tools_challenge_count = 0
+        self._tools_used_this_run = False
+        self._awaiting_final_output = False
+        self._final_output_done = False
+        self._emitted_assistant_content = []
+        self._resume_phase = "model"
+        self._tool_status = {}
+        self._durable_result = None
+        self._tools_settled = False
+
+    def _format_output(self, result: str):
+        if self.output_format == OutputFormat.OPENAI_CHAT:
+            return {"role": "assistant", "content": result}
+        if self.output_format == OutputFormat.OPENAI_RESPONSES:
+            return {"role": "assistant", "content": [{"type": "output_text", "text": result}]}
+        return result
+
+    def _persist(self, status: str = "running") -> None:
+        if self._journal is None or not self.run_id:
+            return
+        from nori.durable import capture_state
+        self._journal.save_run(
+            self.run_id,
+            agent_name=self.name,
+            status=status,
+            prompt=self._run_prompt,
+            result=self._durable_result if status == "done" else None,
+            error_type=None,
+            error=None,
+            state=capture_state(self),
+        )
+
+    def _fail_run(self, exc: BaseException) -> None:
+        if self._journal is None or not self.run_id:
+            return
+        from nori.durable import capture_state
+        try:
+            self._journal.save_run(
+                self.run_id,
+                agent_name=self.name,
+                status="error",
+                prompt=self._run_prompt,
+                result=None,
+                error_type=type(exc).__name__,
+                error=str(exc),
+                state=capture_state(self),
+            )
+        except Exception:
+            logger.exception("durable: could not record failure for run %s", self.run_id)
+
+    def _last_assistant_message(self) -> dict:
+        for entry in reversed(self._history):
+            if entry.get("role") == "assistant":
+                return entry
+        return {"role": "assistant", "content": None}
+
+    def _tool_results_appended(self, tool_calls) -> bool:
+        if not tool_calls:
+            return True
+        ids = [tc.id for tc in tool_calls]
+        if len(self._history) < len(ids):
+            return False
+        tail = self._history[-len(ids):]
+        return [m.get("tool_call_id") for m in tail] == ids
+
+    def _begin_finish(self, result: str) -> None:
+        self._durable_result = result
+        self._resume_phase = "finishing"
+
+    def _decide_after_model(self) -> None:
+        """Apply the same exit rules as the live loop, using the snapshotted assistant turn."""
+        message = self._last_assistant_message()
+        content = message.get("content")
+        tool_calls = message.get("tool_calls")
+
+        if self._awaiting_final_output:
+            self._awaiting_final_output = False
+            self._final_output_done = True
+            if _is_no_tools_ack(content):
+                self._begin_finish(self._pending_final_content or "")
+                return
+            if content:
+                self._emit_assistant_content(content)
+                self._pending_final_content = content
+            self._begin_finish(self._pending_final_content or (content or ""))
+            return
+
+        if tool_calls:
+            # Free-form message.content on tool turns is not user-facing.
+            # Status goes through optional tool arg update_for_user (emitted
+            # as each tool starts). Full reply comes on the final-output pass.
+            self._no_tools_challenge_count = 0
+            self._tools_used_this_run = True
+            self._final_output_done = False
+            self._tool_status = {
+                tc["id"]: {"status": "pending", "result": None}
+                for tc in tool_calls
+            }
+            self._resume_phase = "tools"
+            return
+
+        # After real tools ran, force one dedicated final-output turn rather
+        # than treating this (often empty or re-caption) reply as the answer.
+        if self._tools_used_this_run and not self._final_output_done:
+            logger.debug("final_output_pass agent=%s", self.name)
+            self._awaiting_final_output = True
+            self._history.append({"role": "user", "content": _FINAL_OUTPUT_MESSAGE})
+            self._resume_phase = "model"
+            return
+
+        # Optional gate: when tools exist and require_no_tools_ack is on, the
+        # model must either call tools or explicitly say NO_TOOL_CALLS before
+        # we end the run. Stops "tool call as prose" from counting as done.
+        if self.require_no_tools_ack and self._tools and not self._tools_used_this_run:
+            if _is_no_tools_ack(content):
+                if self._force_tool_active():
+                    self._no_tools_challenge_count += 1
+                    if self._no_tools_challenge_count >= self.no_tools_ack_max:
+                        logger.warning(
+                            "force_tool_ack_exhausted agent=%s tool=%s attempts=%d",
+                            self.name, self.force_tool, self._no_tools_challenge_count,
+                        )
+                        self._begin_finish(self._pending_final_content or "")
+                        return
+                    self._history.append({
+                        "role": "user",
+                        "content": (
+                            f"[System] You must call {self.force_tool} via the "
+                            "function-calling API now. Do not reply with "
+                            f"{_NO_TOOL_CALLS_SENTINEL}."
+                        ),
+                    })
+                    self._resume_phase = "model"
+                    return
+                result = self._pending_final_content or ""
+                logger.debug(
+                    "no_tools_ack agent=%s pending_chars=%d",
+                    self.name, len(result),
+                )
+                self._begin_finish(result)
+                return
+
+            if content:
+                self._emit_assistant_content(content)
+                self._pending_final_content = content
+
+            self._no_tools_challenge_count += 1
+            if self._no_tools_challenge_count >= self.no_tools_ack_max:
+                logger.warning(
+                    "no_tools_ack_forced agent=%s attempts=%d",
+                    self.name, self._no_tools_challenge_count,
+                )
+                self._begin_finish(self._pending_final_content or (content or ""))
+                return
+
+            logger.debug(
+                "no_tools_ack_challenge agent=%s n=%d/%d",
+                self.name, self._no_tools_challenge_count, self.no_tools_ack_max,
+            )
+            self._history.append({"role": "user", "content": self.no_tools_ack_message})
+            self._resume_phase = "model"
+            return
+
+        if _is_no_tools_ack(content):
+            self._begin_finish(self._pending_final_content or "")
+            return
+        if content:
+            self._emit_assistant_content(content)
+            self._pending_final_content = content
+        self._begin_finish(self._pending_final_content or (content or ""))
+
     async def run(
         self,
-        prompt: str,
+        prompt: str | None = None,
         images: list = None,
         _trace_id: str | None = None,
         _parent_span_id: str | None = None,
+        *,
+        run_id: str | None = None,
     ) -> str | dict:
-        self._trace_id = _trace_id or str(uuid.uuid4())
-        self._span_id = uuid.uuid4().hex[:8]
-        if _parent_span_id:
-            self.parent_span_id = _parent_span_id
-        logger.debug("run agent=%s prompt=%r", self.name, prompt[:80])
-        self._audit(
-            "agent_start",
-            agent=self.name, prompt=prompt,
-            trace_id=self._trace_id, span_id=self._span_id,
-            parent_span_id=self.parent_span_id,
-        )
-        if self.narration:
-            preview = prompt[:120].replace("\n", " ")
-            if len(prompt) > 120:
-                preview += "..."
-            start_msg = f"{self.narrator_prefix}{self.name}[{preview}]"
-            narration_logger.debug(start_msg)
-            self.on_narration(start_msg)
-        if images:
-            content: list = [{"type": "text", "text": prompt}]
-            content += [img.to_content_part() for img in images]
-            self._history.append({"role": "user", "content": content})
+        from nori import durable
+
+        journal = durable.get_journal()
+        self._journal = journal
+        stored = None
+        resuming = False
+        if journal is not None:
+            if run_id is None:
+                run_id = durable.allocate_child_run_id() or uuid.uuid4().hex
+            stored = journal.get_run(run_id)
+            if stored is not None and stored["status"] == "done":
+                self.run_id = run_id
+                logger.info("[nori] run %s already finished", run_id)
+                return self._format_output(stored.get("result") or "")
+            if stored is not None and stored["status"] == "error":
+                self.run_id = run_id
+                durable.raise_stored(stored.get("error_type"), stored.get("error"))
+            if stored is not None and stored["status"] in ("running", "waiting"):
+                resuming = True
+            elif prompt is None:
+                raise ValueError(
+                    f"No in-progress run {run_id!r}. Pass a prompt to start one, "
+                    "or nori.list_runs() to see journaled runs."
+                )
+        elif prompt is None:
+            raise ValueError("prompt is required")
+        elif run_id is not None:
+            raise ValueError("durability is disabled; cannot resume a run_id")
         else:
-            self._history.append({"role": "user", "content": prompt})
+            run_id = None
 
-        # Per-turn dynamic tail (clock, product knobs) after the user message so
-        # the system prompt remains a stable prefix for provider prompt caching.
-        dyn = getattr(self, "dynamic_context", None)
-        if isinstance(dyn, str) and dyn.strip():
-            self._history.append({"role": "user", "content": dyn.strip()})
+        self.run_id = run_id
+        self._resuming = resuming
+        if resuming:
+            durable.restore_runtime(self, stored["state"])
+            self._run_prompt = stored.get("prompt")
+            logger.info(
+                "[nori] resuming run %s agent=%s phase=%s",
+                run_id, self.name, self._resume_phase,
+            )
+        else:
+            self._reset_turn_flags()
+            self._trace_id = _trace_id or str(uuid.uuid4())
+            self._span_id = uuid.uuid4().hex[:8]
+            if _parent_span_id:
+                self.parent_span_id = _parent_span_id
+            shown = prompt or ""
+            logger.debug("run agent=%s prompt=%r", self.name, shown[:80])
+            self._audit(
+                "agent_start",
+                agent=self.name, prompt=prompt,
+                trace_id=self._trace_id, span_id=self._span_id,
+                parent_span_id=self.parent_span_id,
+            )
+            if self.narration and prompt:
+                preview = prompt[:120].replace("\n", " ")
+                if len(prompt) > 120:
+                    preview += "..."
+                start_msg = f"{self.narrator_prefix}{self.name}[{preview}]"
+                narration_logger.debug(start_msg)
+                self.on_narration(start_msg)
+            if images:
+                content: list = [{"type": "text", "text": prompt}]
+                content += [img.to_content_part() for img in images]
+                self._history.append({"role": "user", "content": content})
+            else:
+                self._history.append({"role": "user", "content": prompt})
+            # Per-turn dynamic tail (clock, product knobs) after the user message so
+            # the system prompt remains a stable prefix for provider prompt caching.
+            dyn = getattr(self, "dynamic_context", None)
+            if isinstance(dyn, str) and dyn.strip():
+                self._history.append({"role": "user", "content": dyn.strip()})
+            self._run_prompt = prompt
+            if journal is not None:
+                logger.info(
+                    "[nori] run started id=%s agent=%s journal=%s",
+                    run_id, self.name, journal.path,
+                )
+                # The prompt is durable before the first await (MCP connect, model).
+                self._persist()
 
+        settled = self._tools_settled if resuming else False
         _d = config.get_defaults()
         _ctx_server = None
         _ctx_token = None
+        from nori import server as _ctx_server
         if _d.server.enabled:
-            from nori import server as _ctx_server
             await _ctx_server.ensure_started(_d.server)
-            _ctx_token = _ctx_server._agent_name_var.set(self.name)
+        _ctx_token = _ctx_server._agent_name_var.set(self.name)
 
         _ctx_pad_token = None
         if self._scratchpad is not None and self._scratchpad.propagate == Propagation.ALWAYS:
             _ctx_pad_token = _scratchpad_var.set(self._scratchpad)
 
+        run_token = durable.bind_run(run_id) if run_id else None
         self._run_start = time.perf_counter()
         try:
             await self._connect_mcp()
+            if resuming and settled:
+                durable.restore_tools(self, stored["state"])
+            if journal is not None:
+                self._tools_settled = True
+                self._persist()
             async with asyncio.timeout(self.run_timeout):
                 result = await self._run_loop()
             self._elapsed = time.perf_counter() - self._run_start
-            if self.output_format == OutputFormat.OPENAI_CHAT:
-                return {"role": "assistant", "content": result}
-            if self.output_format == OutputFormat.OPENAI_RESPONSES:
-                return {"role": "assistant", "content": [{"type": "output_text", "text": result}]}
-            return result
+            return self._format_output(result)
         except asyncio.TimeoutError:
             self._elapsed = time.perf_counter() - self._run_start
             raise RunTimeout(
                 f"{self.name} exceeded run_timeout={self.run_timeout}s "
                 f"after {self._turn_count} turns"
             )
+        except RunTimeout:
+            # A nested agent's timeout leaves that child resumable. Do not
+            # close this run; the tool stays in-flight and resume retries it.
+            raise
+        except Exception as exc:
+            self._elapsed = time.perf_counter() - self._run_start
+            self._fail_run(exc)
+            raise
         finally:
+            if run_token is not None:
+                durable.unbind_run(run_token)
             await self._disconnect_mcp()
             if _ctx_token is not None:
                 _ctx_server._agent_name_var.reset(_ctx_token)
@@ -1169,137 +1448,66 @@ class Agent:
                 self._scratchpad.dump_audit(self.name)
 
     async def _run_loop(self) -> str:
-        self._pending_final_content = None
-        self._no_tools_challenge_count = 0
-        self._tools_used_this_run = False
-        self._awaiting_final_output = False
-        self._final_output_done = False
-        self._emitted_assistant_content = []
+        from nori.durable import tool_calls_from_history
+
         while True:
-            # Allow one extra completion for the forced final-output pass after tools.
-            at_limit = self._max_turns is not None and self._turn_count >= self._max_turns
-            if (
-                at_limit
-                and self._tools_used_this_run
-                and not self._final_output_done
-                and not self._awaiting_final_output
-            ):
-                # Hit the ceiling mid-run after tools: still take the final-output turn.
-                logger.debug("final_output_pass_at_max_turns agent=%s", self.name)
-                self._awaiting_final_output = True
-                self._history.append({"role": "user", "content": _FINAL_OUTPUT_MESSAGE})
-            if at_limit and not self._awaiting_final_output:
-                raise MaxTurnsExceeded(f"Reached max_turns={self._max_turns}")
+            phase = self._resume_phase
 
-            message = await self._complete(self._history)
-            self._apply_strips()
-            self._turn_count += 1
-            logger.debug("turn agent=%s turn=%d tool_calls=%d",
-                         self.name, self._turn_count,
-                         len(message.tool_calls) if message.tool_calls else 0)
-            self._history.append(self._message_to_dict(message))
+            if phase == "model":
+                # Allow one extra completion for the forced final-output pass after tools.
+                at_limit = self._max_turns is not None and self._turn_count >= self._max_turns
+                if (
+                    at_limit
+                    and self._tools_used_this_run
+                    and not self._final_output_done
+                    and not self._awaiting_final_output
+                ):
+                    logger.debug("final_output_pass_at_max_turns agent=%s", self.name)
+                    self._awaiting_final_output = True
+                    self._history.append({"role": "user", "content": _FINAL_OUTPUT_MESSAGE})
+                if at_limit and not self._awaiting_final_output:
+                    raise MaxTurnsExceeded(f"Reached max_turns={self._max_turns}")
 
-            await self._handle_context_pressure(self._context_fill())
-
-            if self._checkpoint and self._turn_count % self._checkpoint.every == 0:
-                await self._run_checkpoint()
-
-            # Forced final-output turn (tool_choice=none) after tools finished.
-            if self._awaiting_final_output:
-                self._awaiting_final_output = False
-                self._final_output_done = True
-                if _is_no_tools_ack(message.content):
-                    result = self._pending_final_content or ""
-                    return await self._finish_without_tools_async(result)
-                if message.content:
-                    self._emit_assistant_content(message.content)
-                    self._pending_final_content = message.content
-                result = self._pending_final_content or (message.content or "")
-                return await self._finish_without_tools_async(result)
-
-            if message.tool_calls:
-                # Free-form message.content on tool turns is not user-facing.
-                # Status goes through optional tool arg update_for_user (emitted
-                # as each tool starts). Full reply comes on the final-output pass.
-                # Real tool use clears the no-tools exit gate for the rest of this run.
-                self._no_tools_challenge_count = 0
-                self._tools_used_this_run = True
-                self._final_output_done = False
-                tool_results = await self._execute_tools(message.tool_calls)
-                self._history.extend(tool_results)
-                continue
-
-            # ── No tool calls this turn ──────────────────────────────────────
-            # After real tools ran, force one dedicated final-output turn rather
-            # than treating this (often empty or re-caption) reply as the answer.
-            if self._tools_used_this_run and not self._final_output_done:
-                logger.debug("final_output_pass agent=%s", self.name)
-                self._awaiting_final_output = True
-                self._history.append({"role": "user", "content": _FINAL_OUTPUT_MESSAGE})
-                continue
-
-            # Optional gate: when tools exist and require_no_tools_ack is on, the
-            # model must either call tools or explicitly say NO_TOOL_CALLS before
-            # we end the run. Stops "tool call as prose" from counting as done.
-            if self.require_no_tools_ack and self._tools and not self._tools_used_this_run:
-                if _is_no_tools_ack(message.content):
-                    # force_tool active → cannot opt out with NO_TOOL_CALLS.
-                    if self._force_tool_active():
-                        self._no_tools_challenge_count += 1
-                        if self._no_tools_challenge_count >= self.no_tools_ack_max:
-                            logger.warning(
-                                "force_tool_ack_exhausted agent=%s tool=%s attempts=%d",
-                                self.name, self.force_tool, self._no_tools_challenge_count,
-                            )
-                            result = self._pending_final_content or ""
-                            return await self._finish_without_tools_async(result)
-                        self._history.append({
-                            "role": "user",
-                            "content": (
-                                f"[System] You must call {self.force_tool} via the "
-                                "function-calling API now. Do not reply with "
-                                f"{_NO_TOOL_CALLS_SENTINEL}."
-                            ),
-                        })
-                        continue
-                    # Do not surface the sentinel to the user.
-                    result = self._pending_final_content or ""
-                    logger.debug(
-                        "no_tools_ack agent=%s pending_chars=%d",
-                        self.name, len(result),
-                    )
-                    return await self._finish_without_tools_async(result)
-
-                # Candidate final prose — stream it, then demand an ack (or tools).
-                if message.content:
-                    self._emit_assistant_content(message.content)
-                    self._pending_final_content = message.content
-
-                self._no_tools_challenge_count += 1
-                # After N failed no-tool turns (no real call, no NO_TOOL_CALLS), stop
-                # challenging so we don't burn tokens forever.
-                if self._no_tools_challenge_count >= self.no_tools_ack_max:
-                    logger.warning(
-                        "no_tools_ack_forced agent=%s attempts=%d",
-                        self.name, self._no_tools_challenge_count,
-                    )
-                    result = self._pending_final_content or (message.content or "")
-                    return await self._finish_without_tools_async(result)
-
+                self._persist()
+                message = await self._complete(self._history)
+                self._apply_strips()
+                self._turn_count += 1
                 logger.debug(
-                    "no_tools_ack_challenge agent=%s n=%d/%d",
-                    self.name, self._no_tools_challenge_count, self.no_tools_ack_max,
+                    "turn agent=%s turn=%d tool_calls=%d",
+                    self.name, self._turn_count,
+                    len(message.tool_calls) if message.tool_calls else 0,
                 )
-                self._history.append({"role": "user", "content": self.no_tools_ack_message})
+                self._history.append(self._message_to_dict(message))
+                self._resume_phase = "post_model"
+                self._persist()
                 continue
 
-            # Default exit: no tool calls and no tools used this run.
-            # Never surface the NO_TOOL_CALLS sentinel even if the model still emits it.
-            if _is_no_tools_ack(message.content):
-                result = self._pending_final_content or ""
-                return await self._finish_without_tools_async(result)
-            if message.content:
-                self._emit_assistant_content(message.content)
-                self._pending_final_content = message.content
-            result = self._pending_final_content or (message.content or "")
-            return await self._finish_without_tools_async(result)
+            if phase == "post_model":
+                await self._handle_context_pressure(self._context_fill())
+                if self._checkpoint and self._turn_count % self._checkpoint.every == 0:
+                    await self._run_checkpoint()
+                self._decide_after_model()
+                self._persist()
+                continue
+
+            if phase == "finishing":
+                result = await self._finish_without_tools_async(self._durable_result or "")
+                self._durable_result = result
+                self._resume_phase = "done"
+                self._persist(status="done")
+                return result
+
+            if phase == "tools":
+                tool_calls = tool_calls_from_history(self._history)
+                tool_results = await self._execute_tools(tool_calls)
+                if not self._tool_results_appended(tool_calls):
+                    self._history.extend(tool_results)
+                self._tool_status = {}
+                self._resume_phase = "model"
+                self._persist()
+                continue
+
+            if phase == "done":
+                return self._durable_result or ""
+
+            raise RuntimeError(f"unknown durable phase {phase!r}")

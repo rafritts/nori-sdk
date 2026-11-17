@@ -2,6 +2,7 @@ from nori.agent import Agent
 from nori.chatbot import serve
 import nori.config as config
 from nori.config import configure, reset, NotifyConfig
+from nori.durable import list_runs
 from nori.concurrent import map, pipeline
 from nori.anti_spin import Checkpoint
 from nori.context import ContextFile
@@ -20,6 +21,7 @@ __all__ = [
     "serve",
     "config",
     "configure",
+    "list_runs",
     "reset",
     "NotifyConfig",
     "Checkpoint",

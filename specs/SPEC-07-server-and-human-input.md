@@ -205,7 +205,7 @@ The server architecture should not preclude these. Route registration should be 
 
 - **No authentication.** The server binds to `127.0.0.1` by default, which limits exposure, but any local process can resolve HITL requests. Auth is deferred.
 - **No timeout on HITL requests.** If the human never responds, the agent waits indefinitely. A `timeout` parameter on `HumanInput` can be added later.
-- **No persistence.** Pending requests are in-memory. A process restart drops them.
+- **HITL state is journaled with the run.** See SPEC-20. A kill mid-wait keeps the request id, and an answer that was committed is replayed on resume. The embedded server's in-memory futures still die with the process; resume re-registers them.
 
 ---
 

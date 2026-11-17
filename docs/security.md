@@ -62,4 +62,5 @@ When a control tower is configured, the audit stream emits full prompts, tool ar
 - Isolate the process (container/unprivileged user/netns) if it has `Bash` or `CodeRunner`.
 - Set `sandbox_dir` explicitly in library use if you want file confinement.
 - Keep the HITL token secret; never bind the server to a public interface without TLS.
+- The durable-run journal (`~/.nori/runs.db` by default) stores the full transcript, including tool arguments and HITL answers. Keep that file private.
 - Point the audit stream only at a trusted, TLS collector.

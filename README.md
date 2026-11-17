@@ -167,7 +167,7 @@ def make_agent():
 serve(make_agent, port=7732)   # POST http://localhost:7732/v1/chat/completions
 ```
 
-Need a human in the loop? Give the agent the `HumanInput` tool and it will pause mid-run, post a question to the embedded server, and wait for your app to answer over HTTP.
+Need a human in the loop? Give the agent the `HumanInput` tool and it will pause mid-run, post a question to the embedded server, and wait for your app to answer over HTTP. The whole run is journaled, so if the process is killed you resume it with the same `run_id` — including a HITL wait that has not been answered yet.
 
 *Run it:* [chatbot_demo.py](demos/chatbot_demo.py) — point Open WebUI at your agent · [hitl_demo.py](demos/hitl_demo.py) — approval flow with a simulated human
 

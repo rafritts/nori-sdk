@@ -86,7 +86,7 @@ nori.configure(
 )
 ```
 
-Other `configure()` options: `tool_models` (per-tool model overrides), `server` (HITL server: `True` or a dict with `host`/`port`/`token`), `notify` (Slack/webhook defaults for `Notify`), `control_tower` + `project` (remote audit stream).
+Other `configure()` options: `tool_models` (per-tool model overrides), `server` (HITL server: `True` or a dict with `host`/`port`/`token`), `durable` (crash journal: `True` by default, `False` to disable, or a path / `{"path": "..."}`), `notify` (Slack/webhook defaults for `Notify`), `control_tower` + `project` (remote audit stream).
 
 Override any default per-agent by passing the parameter directly to `Agent(...)`. See [`config_override_demo.py`](https://github.com/rafritts/nori-sdk/blob/master/demos/config_override_demo.py) for a full example.
 
@@ -108,7 +108,29 @@ agent.token_counts    # {prompt, completion, reasoning, cached, total}
 agent.elapsed         # seconds for the last run, or None
 agent.trace_id        # B3 trace ID for this run
 agent.history         # full message history
+agent.run_id          # journal id for this run, or None if durability is off
 ```
+
+### Durable runs
+
+Runs are journaled by default to `~/.nori/runs.db` (`$NORI_STATE_PATH` overrides the path). The journal commits before each model call and around each tool call, using SQLite WAL with `synchronous=FULL`. Killing the process loses only the step that had not committed.
+
+```python
+result = await agent.run("Purge the old logs.")   # logs: run started id=<run_id>
+# process dies
+
+result = await agent.run(run_id="<run_id>")       # same agent construction, continues
+```
+
+`nori.list_runs()` lists journaled runs (`status` is `running`, `waiting`, `done`, or `error`). `nori.configure(durable=False)` turns the journal off. `nori.configure(durable="/path/to.db")` sets the file.
+
+Rebuild the agent with the same tools, scratchpad schema, and MCP servers before resuming. History, system prompt, model id, max turns, scratchpad contents, and which deferred tools were expanded are restored from the journal.
+
+A tool whose result was committed is not run again. A tool that had started but not committed runs again, so side-effecting tools can run twice. Nested agent calls from a tool resume under a stable child id instead of starting over.
+
+A run that already finished returns its stored result. A run that ended with an exception (including max turns and anti-spin) raises again and does not retry. `run_timeout` does not close the run; resume continues it, and the timeout clock starts over.
+
+The journal contains the full transcript. Keep the file private.
 
 ### Images
 

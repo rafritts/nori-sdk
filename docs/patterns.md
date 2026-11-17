@@ -115,7 +115,9 @@ agent = Agent(
 result = await agent.run("Purge all log files older than 30 days from /var/log/app.")
 ```
 
-The agent hits `HumanInput`, posts a question to `GET /hitl/pending`, and waits. Your application responds via `POST /hitl/{id}/respond` with the human's answer. Both endpoints require the header `X-Nori-Token` (a token is generated on server start and logged; read it from `nori.config.get_defaults().server.token`). See [Security](security.md#the-embedded-hitl-server).
+The agent hits `HumanInput`, registers a question on `GET /hitl/pending`, and waits. Your application responds via `POST /hitl/{id}/respond` with the human's answer. Both endpoints require the header `X-Nori-Token` (a token is generated on server start and logged; read it from `nori.config.get_defaults().server.token`). See [Security](security.md#the-embedded-hitl-server).
+
+The wait is part of the run journal (see [Durable runs](agent.md#durable-runs)). After a restart, resume the same `run_id`. The request id stays the same. If the answer was already committed, the agent continues without asking again. If it was not, `GET /hitl/pending` still lists the question once the run is resumed, and also lists it before resume from the journal.
 
 See [`hitl_demo.py`](https://github.com/rafritts/nori-sdk/blob/master/demos/hitl_demo.py) for a complete working example including an auto-responder that simulates the human side.
 

@@ -72,6 +72,38 @@ def unregister_pending(request_id: str) -> None:
     _pending.pop(request_id, None)
 
 
+def _pending_view() -> list[dict]:
+    """Live waits plus journaled questions whose answer has not been committed."""
+    rows = []
+    seen: set[str] = set()
+    for rid, info in _pending.items():
+        if info["future"].done():
+            continue
+        seen.add(rid)
+        rows.append({
+            "id": rid,
+            "agent": info["agent"],
+            "question": info["question"],
+            "options": info["options"],
+            "created_at": info["created_at"],
+        })
+    from nori import durable
+    journal = durable.get_journal()
+    if journal is None:
+        return rows
+    for row in journal.pending_hitl():
+        if row["request_id"] in seen:
+            continue
+        rows.append({
+            "id": row["request_id"],
+            "agent": row.get("agent_name") or "unknown",
+            "question": row.get("question") or "",
+            "options": row.get("options") or [],
+            "created_at": row.get("created_at"),
+        })
+    return rows
+
+
 def _make_app(token: str | None = None):
     from fastapi import FastAPI, Header, HTTPException
     from pydantic import BaseModel
@@ -92,26 +124,26 @@ def _make_app(token: str | None = None):
     @app.get("/hitl/pending")
     async def hitl_pending(x_nori_token: str | None = Header(default=None)):
         _auth(x_nori_token)
-        return [
-            {
-                "id": rid,
-                "agent": info["agent"],
-                "question": info["question"],
-                "options": info["options"],
-                "created_at": info["created_at"],
-            }
-            for rid, info in _pending.items()
-        ]
+        return _pending_view()
 
     @app.post("/hitl/{request_id}/respond")
     async def hitl_respond(
         request_id: str, body: RespondBody, x_nori_token: str | None = Header(default=None)
     ):
         _auth(x_nori_token)
+        # Commit the answer before waking the agent. A kill after this returns
+        # still leaves the response in the journal for resume.
+        from nori import durable
+        journal = durable.get_journal()
+        saved = "missing"
+        if journal is not None:
+            saved = journal.save_hitl_response(request_id, body.response)
         info = _pending.get(request_id)
-        if info is None or info["future"].done():
-            raise HTTPException(status_code=404, detail="Unknown or already resolved request")
-        info["future"].set_result(body.response)
-        return {"ok": True}
+        if info is not None and not info["future"].done():
+            info["future"].set_result(body.response)
+            return {"ok": True}
+        if saved == "saved":
+            return {"ok": True}
+        raise HTTPException(status_code=404, detail="Unknown or already resolved request")
 
     return app
